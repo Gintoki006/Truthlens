@@ -52,7 +52,7 @@ OPENSOURCES_LABEL_MAP = {
 def load_opensources() -> pd.DataFrame:
     """
     Load OpenSources dataset.
-    Expected CSV columns: domain, type, 2nd type, 3rd type
+    Expected CSV columns: url, type, 2nd_type, 3rd_type, active
     Download from: https://github.com/several27/FakeNewsCorpus (sources.csv)
     Place at: data/opensources.csv
     """
@@ -62,6 +62,11 @@ def load_opensources() -> pd.DataFrame:
         return pd.DataFrame()
 
     df = pd.read_csv(path)
+    
+    # Rename url column to domain
+    if "url" in df.columns:
+        df = df.rename(columns={"url": "domain"})
+        
     # Use the primary 'type' column for scoring
     df["trust_score"] = df["type"].str.lower().map(OPENSOURCES_LABEL_MAP).fillna(50).astype(int)
     df["category"] = df["type"].str.lower()
@@ -77,8 +82,7 @@ def load_opensources() -> pd.DataFrame:
 def load_mbfc() -> pd.DataFrame:
     """
     Load Media Bias / Fact Check sample dataset.
-    Expected CSV columns: domain, credibility, bias
-    Download from: Kaggle or community GitHub repos
+    Expected CSV columns from Kaggle: site_name, url, bias_rating, factual_reporting_rating
     Place at: data/mbfc.csv
     """
     path = Path(__file__).parent.parent / "data" / "mbfc.csv"
@@ -88,20 +92,28 @@ def load_mbfc() -> pd.DataFrame:
 
     df = pd.read_csv(path)
 
-    # Map credibility to trust_score if present
-    if "credibility" in df.columns:
-        cred_map = {"high": 85, "medium": 60, "low": 30, "very low": 15}
-        df["trust_score"] = df["credibility"].str.lower().map(cred_map).fillna(50).astype(int)
+    # Extract domain from URL
+    df["domain"] = df["url"].str.extract(r'https?://(?:www\.)?([^/]+)')
+    
+    # Map factual_reporting_rating to trust_score
+    if "factual_reporting_rating" in df.columns:
+        cred_map = {"high": 85, "mixed": 50, "low": 30, "very low": 15}
+        df["trust_score"] = df["factual_reporting_rating"].str.lower().map(cred_map).fillna(50).astype(int)
     else:
         df["trust_score"] = 50
 
-    if "bias" not in df.columns:
+    if "bias_rating" not in df.columns:
         df["bias"] = "unknown"
     else:
-        df["bias"] = df["bias"].str.lower().str.strip()
+        # Convert numeric bias to categories if needed, or just store as string
+        df["bias"] = df["bias_rating"].astype(str).str.strip()
 
-    df["category"] = "reliable"  # default; MBFC focuses on established outlets
+    df["category"] = "reliable"  # default
     df["dataset_origin"] = "mbfc"
+    
+    # Drop rows without a valid domain
+    df = df.dropna(subset=["domain"])
+    
     df = df[["domain", "trust_score", "category", "bias", "dataset_origin"]].copy()
     df["domain"] = df["domain"].str.lower().str.strip()
     return df
