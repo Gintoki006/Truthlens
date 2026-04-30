@@ -30,4 +30,16 @@ frontend/.vercel
 frontend/*.tsbuildinfo
 frontend/next-env.d.ts
 
+# Backend specific ignores
+backend/__pycache__/
+backend/**/__pycache__/
+backend/venv/
+backend/.venv/
+backend/*.pyc
+backend/.env
+backend/models/*.pkl
+
+# Docs (keep local only)
 prd.md
+design.md
+techstack.md

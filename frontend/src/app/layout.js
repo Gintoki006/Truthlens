@@ -1,5 +1,6 @@
 import { Newsreader, Work_Sans } from "next/font/google";
 import { ThemeProvider } from "@/components/theme-provider";
+import { AuthProvider } from "@/context/AuthContext";
 import { SmoothScroll } from "@/components/smooth-scroll";
 import "./globals.css";
 
@@ -35,9 +36,11 @@ export default function RootLayout({ children }) {
           enableSystem
           disableTransitionOnChange
         >
-          <SmoothScroll>
-            {children}
-          </SmoothScroll>
+          <AuthProvider>
+            <SmoothScroll>
+              {children}
+            </SmoothScroll>
+          </AuthProvider>
         </ThemeProvider>
       </body>
     </html>
