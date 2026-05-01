@@ -18,7 +18,19 @@ _tfidf_vectorizer = None
 _lr_model = None
 _models_loaded = False
 
-MODELS_DIR = Path(__file__).parent.parent / "models"
+def _get_models_dir():
+    # Try local development path
+    path = Path(__file__).parent.parent / "models"
+    if path.exists():
+        return path
+    # Try absolute path often used in Docker/Railway
+    path = Path("/app/models")
+    if path.exists():
+        return path
+    # Default back to relative
+    return Path(__file__).parent.parent / "models"
+
+MODELS_DIR = _get_models_dir()
 
 
 def load_models():
@@ -27,7 +39,7 @@ def load_models():
 
     # ── Model A: RoBERTa ────────────────────────────────────────────────────
     try:
-        model_name = os.getenv("HF_MODEL_NAME", "hamzab/roberta-fake-news-classification")
+        model_name = os.getenv("HF_MODEL_NAME", "hamzab/roberta-fake-news-classification").strip()
         if model_name.lower() in ["skip", "none", "false", ""]:
             print("  ⚠️ Skipping RoBERTa model load due to HF_MODEL_NAME setting.")
             _roberta_pipeline = None

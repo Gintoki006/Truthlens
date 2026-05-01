@@ -37,7 +37,7 @@ backend/venv/
 backend/.venv/
 backend/*.pyc
 backend/.env
-backend/models/*.pkl
+# backend/models/*.pkl
 
 # Docs (keep local only)
 prd.md
