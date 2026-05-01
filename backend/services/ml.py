@@ -27,11 +27,14 @@ def load_models():
 
     # ── Model A: RoBERTa ────────────────────────────────────────────────────
     try:
-        from transformers import pipeline
-
         model_name = os.getenv("HF_MODEL_NAME", "hamzab/roberta-fake-news-classification")
-        _roberta_pipeline = pipeline("text-classification", model=model_name)
-        print(f"  ✅ RoBERTa loaded: {model_name}")
+        if model_name.lower() in ["skip", "none", "false", ""]:
+            print("  ⚠️ Skipping RoBERTa model load due to HF_MODEL_NAME setting.")
+            _roberta_pipeline = None
+        else:
+            from transformers import pipeline
+            _roberta_pipeline = pipeline("text-classification", model=model_name)
+            print(f"  ✅ RoBERTa loaded: {model_name}")
     except Exception as e:
         print(f"  ⚠️ RoBERTa failed to load: {e}")
         _roberta_pipeline = None
