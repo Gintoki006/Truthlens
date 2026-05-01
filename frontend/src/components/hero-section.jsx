@@ -1,6 +1,7 @@
 'use client';
 import { motion, useScroll, useTransform } from 'framer-motion';
-import { ScrollReveal, TextReveal, TypewriterEffect } from './animations';
+import { ScrollReveal, TypewriterEffect } from './animations';
+import AnalyzeForm from '@/components/forms/AnalyzeForm';
 
 export function HeroSection({ forwardRef }) {
   const { scrollYProgress: heroProgress } = useScroll({
@@ -42,26 +43,8 @@ export function HeroSection({ forwardRef }) {
         </p>
       </ScrollReveal>
 
-      <ScrollReveal delay={0.8} className="w-full max-w-3xl mb-12">
-        <div className="flex flex-col md:flex-row gap-4 md:gap-0 group mt-6 md:mt-0">
-          <div className="relative flex-grow">
-            <label className="absolute -top-6 left-0 font-label-caps text-label-caps text-slate-500 dark:text-stone-400">
-              Check the truth
-            </label>
-            <input
-              className="w-full bg-transparent border-2 border-primary dark:border-stone-500 dark:text-stone-100 p-4 font-body-md focus:outline-none focus:ring-0"
-              placeholder="https://news-source.com/article-to-verify"
-              type="text"
-            />
-          </div>
-          <motion.button
-            whileHover={{ scale: 1.02 }}
-            whileTap={{ scale: 0.98 }}
-            className="bg-primary dark:bg-stone-100 text-on-primary dark:text-stone-900 px-10 py-4 w-full md:w-auto font-['Work_Sans'] font-bold uppercase tracking-widest hover:bg-slate-800 dark:hover:bg-stone-300 transition-colors"
-          >
-            Analyze
-          </motion.button>
-        </div>
+      <ScrollReveal delay={0.8} className="w-full max-w-3xl mb-6">
+        <AnalyzeForm />
       </ScrollReveal>
     </motion.section>
   );

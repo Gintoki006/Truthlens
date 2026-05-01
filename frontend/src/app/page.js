@@ -7,6 +7,7 @@ import { BackgroundTexture } from '@/components/background-texture';
 import { Header } from '@/components/header';
 import { BottomNav } from '@/components/bottom-nav';
 import { HeroSection } from '@/components/hero-section';
+import { RecentAnalysesStrip } from '@/components/recent-analyses';
 import { FeaturesSection } from '@/components/features-section';
 import { StatsSection } from '@/components/stats-section';
 import { LiveFeedSection } from '@/components/live-feed-section';
@@ -31,6 +32,8 @@ export default function Home() {
         <Header />
 
         <HeroSection forwardRef={heroRef} />
+
+        <RecentAnalysesStrip />
 
         <StatsSection />
 
