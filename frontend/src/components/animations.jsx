@@ -67,18 +67,23 @@ export function TypewriterEffect({ phrases, className = '' }) {
     if (!isDeleting && currentText === fullText) {
       timeout = setTimeout(() => setIsDeleting(true), 2500);
     } else if (isDeleting && currentText === '') {
-      setIsDeleting(false);
-      setCurrentPhraseIndex((prev) => (prev + 1) % phrases.length);
+      timeout = setTimeout(() => {
+        setIsDeleting(false);
+        setCurrentPhraseIndex((prev) => (prev + 1) % phrases.length);
+      }, 50);
     } else {
       const nextText = isDeleting
         ? fullText.substring(0, currentText.length - 1)
         : fullText.substring(0, currentText.length + 1);
-        
+
       const typingSpeed = isDeleting ? 20 : 40;
-      
-      timeout = setTimeout(() => {
-        setCurrentText(nextText);
-      }, typingSpeed + (Math.random() * 20));
+
+      timeout = setTimeout(
+        () => {
+          setCurrentText(nextText);
+        },
+        typingSpeed + Math.random() * 20,
+      );
     }
 
     return () => clearTimeout(timeout);
@@ -147,6 +152,7 @@ export function HorizontalScroll({ children, header }) {
     if (!trackRef.current) return;
 
     const updateDimensions = () => {
+      if (!trackRef.current || !trackRef.current.parentElement) return;
       const trackWidth = trackRef.current.scrollWidth;
       const containerWidth = trackRef.current.parentElement.offsetWidth;
       setOverflow(Math.max(0, trackWidth - containerWidth));

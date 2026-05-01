@@ -8,10 +8,20 @@ import { useAuth } from '@/context/AuthContext';
 
 function UserAvatar({ user, size = 'md' }) {
   const sizeClasses = size === 'sm' ? 'w-7 h-7 text-[10px]' : 'w-8 h-8 text-xs';
-  const photoUrl = user?.user_metadata?.avatar_url || user?.user_metadata?.picture;
-  const name = user?.user_metadata?.full_name || user?.user_metadata?.name || user?.email || '';
+  const photoUrl =
+    user?.user_metadata?.avatar_url || user?.user_metadata?.picture;
+  const name =
+    user?.user_metadata?.full_name ||
+    user?.user_metadata?.name ||
+    user?.email ||
+    '';
   const initials = name
-    ? name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2)
+    ? name
+        .split(' ')
+        .map((n) => n[0])
+        .join('')
+        .toUpperCase()
+        .slice(0, 2)
     : (user?.email?.[0] || 'U').toUpperCase();
 
   if (photoUrl) {
@@ -26,7 +36,9 @@ function UserAvatar({ user, size = 'md' }) {
   }
 
   return (
-    <div className={`${sizeClasses} rounded-full bg-primary dark:bg-stone-100 text-on-primary dark:text-stone-900 flex items-center justify-center font-['Work_Sans'] font-bold border-2 border-slate-900 dark:border-stone-100`}>
+    <div
+      className={`${sizeClasses} rounded-full bg-primary dark:bg-stone-100 text-on-primary dark:text-stone-900 flex items-center justify-center font-['Work_Sans'] font-bold border-2 border-slate-900 dark:border-stone-100`}
+    >
       {initials}
     </div>
   );
@@ -60,8 +72,15 @@ export function Header({ forwardRef }) {
   useEffect(() => {
     const getDateline = async () => {
       // 1. Get current date in the user's local timezone
-      const dateOptions = { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' };
-      const localDate = new Intl.DateTimeFormat('en-US', dateOptions).format(new Date());
+      const dateOptions = {
+        weekday: 'long',
+        month: 'long',
+        day: 'numeric',
+        year: 'numeric',
+      };
+      const localDate = new Intl.DateTimeFormat('en-US', dateOptions).format(
+        new Date(),
+      );
 
       // 2. Extract a fallback city from the browser's timezone (e.g., "America/New_York" -> "New York")
       const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
@@ -74,12 +93,15 @@ export function Header({ forwardRef }) {
       // 3. Try to fetch the actual city from a free IP Geolocation API without asking for invasive browser permissions
       try {
         const response = await fetch('https://ipapi.co/json/');
+        if (!response.ok) {
+          return;
+        }
         const data = await response.json();
         if (data && data.city) {
           setDateline(`${data.city}, ${localDate}`);
         }
       } catch (error) {
-        console.error('Failed to fetch accurate location, using timezone fallback.');
+        // Silently ignore geolocation failure to avoid console noise
       }
     };
 
@@ -95,7 +117,11 @@ export function Header({ forwardRef }) {
     }
   };
 
-  const displayName = user?.user_metadata?.full_name || user?.user_metadata?.name || user?.email?.split('@')[0] || 'User';
+  const displayName =
+    user?.user_metadata?.full_name ||
+    user?.user_metadata?.name ||
+    user?.email?.split('@')[0] ||
+    'User';
   const displayEmail = user?.email || '';
 
   const navLinks = [
@@ -138,7 +164,9 @@ export function Header({ forwardRef }) {
         <div className="border-y-2 border-slate-900 dark:border-stone-100 my-1 py-3 md:py-2 w-full flex flex-row justify-between items-center gap-4 md:gap-0 px-2 md:px-0">
           {/* Mobile Left Text */}
           <div className="flex md:hidden text-slate-900 dark:text-stone-100 items-center">
-             <span className="font-['Work_Sans'] font-bold text-[10px] tracking-widest uppercase">Menu</span>
+            <span className="font-['Work_Sans'] font-bold text-[10px] tracking-widest uppercase">
+              Menu
+            </span>
           </div>
 
           {/* Desktop Nav */}
@@ -214,7 +242,9 @@ export function Header({ forwardRef }) {
                           className="flex items-center gap-3 px-4 py-2.5 text-xs font-['Work_Sans'] font-bold uppercase tracking-widest text-slate-600 dark:text-stone-400 hover:bg-slate-50 dark:hover:bg-stone-800 hover:text-slate-900 dark:hover:text-stone-100 transition-colors"
                           onClick={() => setIsUserMenuOpen(false)}
                         >
-                          <span className="material-symbols-outlined text-[16px]">history</span>
+                          <span className="material-symbols-outlined text-[16px]">
+                            history
+                          </span>
                           My History
                         </Link>
                         <Link
@@ -222,7 +252,9 @@ export function Header({ forwardRef }) {
                           className="flex items-center gap-3 px-4 py-2.5 text-xs font-['Work_Sans'] font-bold uppercase tracking-widest text-slate-600 dark:text-stone-400 hover:bg-slate-50 dark:hover:bg-stone-800 hover:text-slate-900 dark:hover:text-stone-100 transition-colors"
                           onClick={() => setIsUserMenuOpen(false)}
                         >
-                          <span className="material-symbols-outlined text-[16px]">dashboard</span>
+                          <span className="material-symbols-outlined text-[16px]">
+                            dashboard
+                          </span>
                           Dashboard
                         </Link>
                       </div>
@@ -233,7 +265,9 @@ export function Header({ forwardRef }) {
                           onClick={handleSignOut}
                           className="flex items-center gap-3 w-full px-4 py-2.5 text-xs font-['Work_Sans'] font-bold uppercase tracking-widest text-secondary hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors cursor-pointer"
                         >
-                          <span className="material-symbols-outlined text-[16px]">logout</span>
+                          <span className="material-symbols-outlined text-[16px]">
+                            logout
+                          </span>
                           Sign Out
                         </button>
                       </div>
@@ -247,7 +281,9 @@ export function Header({ forwardRef }) {
                 href="/login"
                 className="bg-primary text-on-primary px-4 py-1 text-xs font-['Work_Sans'] font-bold uppercase tracking-widest hover:opacity-90 transition-opacity flex items-center gap-2"
               >
-                <span className="material-symbols-outlined text-[14px]">person</span>
+                <span className="material-symbols-outlined text-[14px]">
+                  person
+                </span>
                 Sign In
               </Link>
             )}
@@ -255,16 +291,16 @@ export function Header({ forwardRef }) {
 
           {/* Mobile Actions (Top Right) */}
           <div className="flex md:hidden items-center gap-4">
-             <ThemeToggle />
-             <span 
-               onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
-               className="material-symbols-outlined text-slate-900 dark:text-stone-100 cursor-pointer text-2xl"
-             >
-               {isMobileMenuOpen ? 'close' : 'menu'}
-             </span>
+            <ThemeToggle />
+            <span
+              onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+              className="material-symbols-outlined text-slate-900 dark:text-stone-100 cursor-pointer text-2xl"
+            >
+              {isMobileMenuOpen ? 'close' : 'menu'}
+            </span>
           </div>
         </div>
-        
+
         {/* Mobile Dropdown Menu */}
         <AnimatePresence>
           {isMobileMenuOpen && (
@@ -314,7 +350,9 @@ export function Header({ forwardRef }) {
                         onClick={handleSignOut}
                         className="bg-secondary text-white px-8 py-2 text-sm font-['Work_Sans'] font-bold uppercase tracking-widest flex items-center gap-2"
                       >
-                        <span className="material-symbols-outlined text-[16px]">logout</span>
+                        <span className="material-symbols-outlined text-[16px]">
+                          logout
+                        </span>
                         Sign Out
                       </button>
                     </>
@@ -339,7 +377,6 @@ export function Header({ forwardRef }) {
             </motion.div>
           )}
         </AnimatePresence>
-
       </div>
     </motion.header>
   );
