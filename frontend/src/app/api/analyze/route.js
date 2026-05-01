@@ -10,7 +10,10 @@ export async function POST(request) {
   try {
     const body = await request.json();
 
-    const res = await fetch(`${FASTAPI_URL}/api/analyze`, {
+    const targetUrl = `${FASTAPI_URL}/api/analyze`;
+    console.log("Proxying request to:", targetUrl);
+
+    const res = await fetch(targetUrl, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),

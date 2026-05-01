@@ -51,6 +51,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+print(f"CORS initialized with origins: {ALLOWED_ORIGINS}")
+
 # ── Routes ──────────────────────────────────────────────────────────────────
 from routes.analyze import router as analyze_router
 from routes.history import router as history_router
