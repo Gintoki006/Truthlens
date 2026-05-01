@@ -1,6 +1,12 @@
 import { NextResponse } from "next/server";
 
-const FASTAPI_URL = process.env.NEXT_PUBLIC_FASTAPI_URL || "http://localhost:8000";
+let FASTAPI_URL = process.env.NEXT_PUBLIC_FASTAPI_URL || "http://localhost:8000";
+
+// Robust URL check: add protocol if missing
+if (FASTAPI_URL && !FASTAPI_URL.startsWith("http")) {
+  console.log("⚠️ NEXT_PUBLIC_FASTAPI_URL missing protocol. Prepending https://");
+  FASTAPI_URL = `https://${FASTAPI_URL}`;
+}
 
 /**
  * Proxy endpoint to forward analyze requests to the FastAPI backend.
