@@ -1,10 +1,10 @@
 import { NextResponse } from "next/server";
 
-const FASTAPI_URL = process.env.FASTAPI_URL || "http://localhost:8000";
+const FASTAPI_URL = process.env.NEXT_PUBLIC_FASTAPI_URL || "http://localhost:8000";
 
 /**
  * Proxy endpoint to forward analyze requests to the FastAPI backend.
- * This keeps the FASTAPI_URL secret (server-side only).
+ * This uses the NEXT_PUBLIC_FASTAPI_URL environment variable.
  */
 export async function POST(request) {
   try {

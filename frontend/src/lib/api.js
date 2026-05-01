@@ -1,10 +1,9 @@
 /**
  * API wrapper for FastAPI backend calls.
- * FASTAPI_URL is server-side only — these functions must be called
- * from Server Components or Server Actions.
+ * NEXT_PUBLIC_FASTAPI_URL is exposed to the client.
  */
 
-const API_BASE = process.env.FASTAPI_URL || "http://localhost:8000";
+const API_BASE = process.env.NEXT_PUBLIC_FASTAPI_URL || "http://localhost:8000";
 
 /**
  * Submit an article for analysis.
