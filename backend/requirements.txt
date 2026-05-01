@@ -25,9 +25,8 @@ supabase>=2.7.2
 # Data processing
 pandas>=2.2.2
 
-# LLM explanations (pick one or both)
-openai>=1.43.0
-anthropic>=0.34.1
+# LLM explanations
+google-generativeai>=0.8.0
 
 # Utilities
 python-dotenv>=1.0.1

@@ -3,7 +3,7 @@ LLM explanation generator.
 
 Generates a 2–4 sentence plain-English explanation of the verdict,
 referencing the specific signals that influenced the score.
-Uses OpenAI (GPT-4o-mini) or Anthropic (Claude) depending on config.
+Uses Google Gemini API depending on config.
 """
 
 import os
@@ -18,20 +18,13 @@ def _get_client():
     if _client is not None:
         return _client, _provider
 
-    # Try OpenAI first
-    openai_key = os.getenv("OPENAI_API_KEY")
-    if openai_key and openai_key != "your-openai-key":
-        from openai import OpenAI
-        _client = OpenAI(api_key=openai_key)
-        _provider = "openai"
-        return _client, _provider
-
-    # Try Anthropic
-    anthropic_key = os.getenv("ANTHROPIC_API_KEY")
-    if anthropic_key and anthropic_key != "your-anthropic-key":
-        from anthropic import Anthropic
-        _client = Anthropic(api_key=anthropic_key)
-        _provider = "anthropic"
+    # Try Gemini first
+    gemini_key = os.getenv("GEMINI_API_KEY")
+    if gemini_key and gemini_key != "your-gemini-key":
+        import google.generativeai as genai
+        genai.configure(api_key=gemini_key)
+        _client = genai
+        _provider = "gemini"
         return _client, _provider
 
     return None, None
@@ -79,22 +72,15 @@ Write a concise explanation. Do not use bullet points. Do not say "I" or mention
         )
 
     try:
-        if provider == "openai":
-            response = client.chat.completions.create(
-                model="gpt-4o-mini",
-                messages=[{"role": "user", "content": prompt}],
-                max_tokens=200,
-                temperature=0.3,
+        if provider == "gemini":
+            model = client.GenerativeModel("gemini-2.5-flash")
+            response = model.generate_content(
+                prompt,
+                generation_config=client.types.GenerationConfig(
+                    temperature=0.3,
+                )
             )
-            return response.choices[0].message.content.strip()
-
-        elif provider == "anthropic":
-            response = client.messages.create(
-                model="claude-3-haiku-20240307",
-                max_tokens=200,
-                messages=[{"role": "user", "content": prompt}],
-            )
-            return response.content[0].text.strip()
+            return response.text.strip()
 
     except Exception as e:
         print(f"LLM explanation error: {e}")
