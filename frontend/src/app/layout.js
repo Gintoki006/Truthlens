@@ -2,6 +2,7 @@ import { Newsreader, Work_Sans } from "next/font/google";
 import { ThemeProvider } from "@/components/theme-provider";
 import { AuthProvider } from "@/context/AuthContext";
 import { SmoothScroll } from "@/components/smooth-scroll";
+import { Analytics } from "@vercel/analytics/next";
 import "./globals.css";
 
 const newsreader = Newsreader({
@@ -42,6 +43,7 @@ export default function RootLayout({ children }) {
             </SmoothScroll>
           </AuthProvider>
         </ThemeProvider>
+        <Analytics />
       </body>
     </html>
   );
