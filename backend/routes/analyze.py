@@ -2,12 +2,13 @@
 POST /api/analyze — Main analysis endpoint.
 
 Accepts: { url?, text?, user_id? }
-Runs all three signals in parallel, fuses scores, generates explanation,
+Runs all four signals in parallel, fuses scores, generates explanation,
 stores result in Supabase, returns full result JSON.
 """
 
 import os
 import asyncio
+from datetime import datetime, timezone
 from concurrent.futures import ThreadPoolExecutor
 from urllib.parse import urlparse
 
@@ -15,7 +16,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
 router = APIRouter()
-executor = ThreadPoolExecutor(max_workers=4)
+executor = ThreadPoolExecutor(max_workers=5)
 
 
 class AnalyzeRequest(BaseModel):
@@ -36,6 +37,10 @@ class AnalyzeResponse(BaseModel):
     score_ml: int
     score_roberta: int | None = None
     score_lr: int | None = None
+    score_crosscheck: int | None = None
+    crosscheck_sources: list[dict] = []
+    crosscheck_fallback: bool = False
+    article_age_hours: int | None = None
     verdict: str
     explanation: str
     sentences: list[dict] = []
@@ -52,6 +57,8 @@ async def analyze(request: AnalyzeRequest):
     loop = asyncio.get_event_loop()
 
     # ── Step 1: Get article content ─────────────────────────────────────
+    publish_date = None
+
     if request.url:
         from services.scraper import scrape_article
 
@@ -63,6 +70,7 @@ async def analyze(request: AnalyzeRequest):
         article_body = scraped["body"]
         source_domain = scraped["source_domain"]
         authors = scraped["authors"]
+        publish_date = scraped.get("publish_date")
         input_type = "url"
 
         if not article_body or len(article_body) < 20:
@@ -80,23 +88,46 @@ async def analyze(request: AnalyzeRequest):
         authors = []
         input_type = "text"
 
-    # ── Step 2: Run all three signals in parallel ───────────────────────
+    # ── Compute article age ─────────────────────────────────────────────
+    article_age_hours = None
+    if publish_date:
+        try:
+            if isinstance(publish_date, str):
+                publish_date = datetime.fromisoformat(publish_date)
+            if publish_date.tzinfo is None:
+                publish_date = publish_date.replace(tzinfo=timezone.utc)
+            delta = datetime.now(timezone.utc) - publish_date
+            article_age_hours = max(0, int(delta.total_seconds() / 3600))
+        except Exception:
+            article_age_hours = None
+
+    # ── Step 2: Run all four signals in parallel ────────────────────────
     from services.nlp import compute_nlp_score
     from services.source import compute_source_score
     from services.ml import compute_ml_score
+    from services.crosscheck import crosscheck
 
     nlp_future = loop.run_in_executor(executor, compute_nlp_score, article_body)
     source_future = loop.run_in_executor(executor, compute_source_score, source_domain, authors)
     ml_future = loop.run_in_executor(executor, compute_ml_score, article_body)
+    crosscheck_future = loop.run_in_executor(executor, crosscheck, article_title or article_body[:120])
 
-    nlp_result, source_result, ml_result = await asyncio.gather(
-        nlp_future, source_future, ml_future
+    nlp_result, source_result, ml_result, crosscheck_result = await asyncio.gather(
+        nlp_future, source_future, ml_future, crosscheck_future
     )
 
     # ── Step 3: Fuse scores ─────────────────────────────────────────────
     from services.scorer import compute_final_score, score_sentences
 
-    final = compute_final_score(nlp_result["score"], source_result["score"], ml_result["score"])
+    final = compute_final_score(
+        nlp_score=nlp_result["score"],
+        source_score=source_result["score"],
+        ml_score=ml_result["score"],
+        crosscheck_score=crosscheck_result["crosscheck_score"],
+        article_age_hours=article_age_hours,
+        serper_results_count=crosscheck_result["results_found"],
+    )
+
     sentences = await loop.run_in_executor(
         executor, score_sentences, article_body, nlp_result["score"]
     )
@@ -118,6 +149,9 @@ async def analyze(request: AnalyzeRequest):
         ml_result["lr_score"],
         source_result,
         nlp_result,
+        crosscheck_result["crosscheck_score"],
+        crosscheck_result["corroborating_sources"],
+        final["crosscheck_fallback"],
     )
 
     # ── Step 5: Store in Supabase ───────────────────────────────────────
@@ -139,6 +173,10 @@ async def analyze(request: AnalyzeRequest):
             "score_ml": ml_result["score"],
             "score_roberta": ml_result["roberta_score"],
             "score_lr": ml_result["lr_score"],
+            "score_crosscheck": crosscheck_result["crosscheck_score"],
+            "crosscheck_sources": crosscheck_result["corroborating_sources"],
+            "crosscheck_fallback": final["crosscheck_fallback"],
+            "article_age_hours": article_age_hours,
             "verdict": final["verdict"],
             "explanation": explanation,
             "sentences": sentences,
@@ -167,6 +205,10 @@ async def analyze(request: AnalyzeRequest):
         score_ml=ml_result["score"],
         score_roberta=ml_result["roberta_score"],
         score_lr=ml_result["lr_score"],
+        score_crosscheck=crosscheck_result["crosscheck_score"],
+        crosscheck_sources=crosscheck_result["corroborating_sources"],
+        crosscheck_fallback=final["crosscheck_fallback"],
+        article_age_hours=article_age_hours,
         verdict=final["verdict"],
         explanation=explanation,
         sentences=sentences,

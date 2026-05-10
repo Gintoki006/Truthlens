@@ -30,6 +30,7 @@ def scrape_article(url: str) -> dict:
             "body": article.text or "",
             "authors": article.authors or [],
             "source_domain": source_domain,
+            "publish_date": article.publish_date,
             "success": True,
             "error": None,
         }

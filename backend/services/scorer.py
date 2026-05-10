@@ -1,7 +1,11 @@
 """
 Score fusion and sentence-level scoring.
 
-Final score = (NLP × 0.40) + (Source × 0.35) + (ML × 0.25)
+Standard formula (4 signals):
+  final_score = (NLP × 0.25) + (Source × 0.30) + (ML × 0.25) + (Crosscheck × 0.20)
+
+Dynamic fallback (Serper returned no results AND article < 6 hours old):
+  final_score = (NLP × 0.31) + (Source × 0.38) + (ML × 0.31)
 
 Verdict mapping:
   70–100 → real   (green)
@@ -12,14 +16,46 @@ Verdict mapping:
 import nltk
 
 
-def compute_final_score(nlp_score: int, source_score: int, ml_score: int) -> dict:
+def compute_final_score(
+    nlp_score: int,
+    source_score: int,
+    ml_score: int,
+    crosscheck_score: int | None = None,
+    article_age_hours: int | None = None,
+    serper_results_count: int = 0,
+) -> dict:
     """
-    Fuse three signal scores into a final authenticity score and verdict.
+    Fuse signal scores into a final authenticity score and verdict.
+
+    Uses the standard 4-signal formula when Serper data is available.
+    Falls back to a 3-signal formula when Serper returned no results
+    and the article is less than 6 hours old.
 
     Returns:
-        dict with keys: score, verdict
+        dict with keys: score, verdict, crosscheck_fallback
     """
-    score = round(nlp_score * 0.40 + source_score * 0.35 + ml_score * 0.25)
+    # Determine whether to apply fallback
+    use_fallback = False
+
+    if crosscheck_score is None:
+        # Serper unavailable (no API key or error) — always use fallback
+        use_fallback = True
+    elif serper_results_count == 0 and article_age_hours is not None and article_age_hours < 6:
+        # Serper returned 0 corroborating results on a fresh article
+        use_fallback = True
+
+    if use_fallback:
+        # Redistribute Serper's 20% across the other three signals
+        score = round(nlp_score * 0.31 + source_score * 0.38 + ml_score * 0.31)
+    else:
+        # Standard 4-signal fusion
+        score = round(
+            nlp_score * 0.25
+            + source_score * 0.30
+            + ml_score * 0.25
+            + (crosscheck_score or 0) * 0.20
+        )
+
     score = max(0, min(100, score))
 
     if score >= 70:
@@ -29,7 +65,7 @@ def compute_final_score(nlp_score: int, source_score: int, ml_score: int) -> dic
     else:
         verdict = "fake"
 
-    return {"score": score, "verdict": verdict}
+    return {"score": score, "verdict": verdict, "crosscheck_fallback": use_fallback}
 
 
 def score_sentences(text: str, nlp_score: int) -> list[dict]:

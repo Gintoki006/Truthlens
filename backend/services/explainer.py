@@ -2,7 +2,8 @@
 LLM explanation generator.
 
 Generates a 2–4 sentence plain-English explanation of the verdict,
-referencing the specific signals that influenced the score.
+referencing the specific signals that influenced the score — including
+Serper cross-verification results and corroborating outlet names.
 Uses Google Gemini API depending on config.
 """
 
@@ -42,6 +43,9 @@ def generate_explanation(
     lr_score: int | None,
     source_info: dict,
     nlp_details: dict,
+    crosscheck_score: int | None = None,
+    corroborating_sources: list[dict] | None = None,
+    crosscheck_fallback: bool = False,
 ) -> str:
     """
     Generate a 2–4 sentence explanation of why the article received its verdict.
@@ -49,6 +53,11 @@ def generate_explanation(
     Falls back to a template-based explanation if no LLM API key is configured.
     """
     client, provider = _get_client()
+
+    # Build corroboration context for the prompt
+    corroboration_text = _build_corroboration_text(
+        crosscheck_score, corroborating_sources, crosscheck_fallback
+    )
 
     prompt = f"""You are a fact-checking assistant. Explain in 2-4 clear, plain-English sentences why this news article received its credibility verdict. Reference specific signals.
 
@@ -61,14 +70,16 @@ Signal Breakdown:
 - NLP Text Analysis: {nlp_score}/100 (sentiment: {nlp_details.get('sentiment_score', 'N/A')}, subjectivity: {nlp_details.get('subjectivity_score', 'N/A')}, clickbait: {nlp_details.get('clickbait_score', 'N/A')})
 - Source Credibility: {source_score}/100 (known: {source_info.get('is_known', False)}, category: {source_info.get('category', 'N/A')}, bias: {source_info.get('bias', 'N/A')})
 - ML Classification: {ml_score}/100 (RoBERTa: {roberta_score}, Logistic Regression: {lr_score})
+- Cross-Verification: {corroboration_text}
 
-Write a concise explanation. Do not use bullet points. Do not say "I" or mention yourself. Refer to the article in third person."""
+Write a concise explanation. Do not use bullet points. Do not say "I" or mention yourself. Refer to the article in third person. If corroborating sources were found, mention the outlet names. If the story was too recent to verify, mention that."""
 
     if client is None:
         # Template fallback — no LLM key configured
         return _template_explanation(
             article_title, source_domain, verdict, final_score,
             nlp_score, source_score, ml_score, source_info, nlp_details,
+            crosscheck_score, corroborating_sources, crosscheck_fallback,
         )
 
     try:
@@ -87,12 +98,43 @@ Write a concise explanation. Do not use bullet points. Do not say "I" or mention
         return _template_explanation(
             article_title, source_domain, verdict, final_score,
             nlp_score, source_score, ml_score, source_info, nlp_details,
+            crosscheck_score, corroborating_sources, crosscheck_fallback,
         )
+
+
+def _build_corroboration_text(
+    crosscheck_score: int | None,
+    corroborating_sources: list[dict] | None,
+    crosscheck_fallback: bool,
+) -> str:
+    """Build a human-readable corroboration summary for the LLM prompt."""
+    if crosscheck_fallback:
+        return "Story may be too recent to verify — no corroborating search results found; Serper cross-verification weight redistributed to other signals."
+
+    if crosscheck_score is None:
+        return "Cross-verification unavailable (Serper API not configured)."
+
+    sources = corroborating_sources or []
+    if not sources:
+        return f"{crosscheck_score}/100 — No major outlets found covering this claim."
+
+    names = [s.get("name", s.get("domain", "Unknown")) for s in sources]
+    # Truncate names to domain for readability
+    display_names = []
+    for s in sources:
+        domain = s.get("domain", "")
+        # Use a clean display name
+        name = domain.replace(".com", "").replace(".co.in", "").replace(".in", "").title()
+        display_names.append(name)
+
+    outlet_list = ", ".join(display_names[:5])
+    return f"{crosscheck_score}/100 — Corroborated by: {outlet_list} ({len(sources)} trusted outlet{'s' if len(sources) != 1 else ''})"
 
 
 def _template_explanation(
     article_title, source_domain, verdict, final_score,
     nlp_score, source_score, ml_score, source_info, nlp_details,
+    crosscheck_score=None, corroborating_sources=None, crosscheck_fallback=False,
 ) -> str:
     """Generate a template-based explanation when no LLM is available."""
     parts = []
@@ -118,6 +160,16 @@ def _template_explanation(
         parts.append(f'The source ({source_domain}) has a low credibility rating in our database (score: {source_score}/100).')
     elif source_score > 70:
         parts.append(f'The source ({source_domain}) is rated as generally credible (score: {source_score}/100).')
+
+    # Cross-verification signal
+    sources = corroborating_sources or []
+    if crosscheck_fallback:
+        parts.append('This story may be too recent to verify via search — cross-verification was skipped.')
+    elif crosscheck_score is not None and len(sources) > 0:
+        outlet_names = [s.get("domain", "").replace(".com", "").title() for s in sources[:3]]
+        parts.append(f'{", ".join(outlet_names)} {"all" if len(outlet_names) > 1 else "also"} reported this story, supporting its authenticity.')
+    elif crosscheck_score is not None and len(sources) == 0:
+        parts.append('No major outlets were found reporting this claim, which lowers its credibility.')
 
     # ML signal
     if ml_score < 40:

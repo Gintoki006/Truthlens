@@ -7,6 +7,8 @@ import ScoreGauge from "@/components/ui/ScoreGauge";
 import VerdictBadge from "@/components/ui/VerdictBadge";
 import SignalBar from "@/components/ui/SignalBar";
 import SentenceHighlight from "@/components/ui/SentenceHighlight";
+import CrosscheckPanel from "@/components/ui/CrosscheckPanel";
+import FallbackBadge from "@/components/ui/FallbackBadge";
 
 export default function ResultsPage() {
   const params = useParams();
@@ -101,9 +103,10 @@ export default function ResultsPage() {
 
       <div className="flex flex-col md:flex-row">
         {/* Sidebar */}
-        <aside className="w-full md:w-[260px] border-b md:border-b-0 md:border-r border-[var(--border-color)] p-6 space-y-6">
+        <aside className="w-full md:w-[280px] border-b md:border-b-0 md:border-r border-[var(--border-color)] p-6 space-y-6">
           <div className="space-y-3">
             <VerdictBadge verdict={analysis.verdict} size="lg" />
+            {analysis.crosscheck_fallback && <FallbackBadge />}
             {communityDisagrees && (
               <span className="block text-xs text-[#BA7517] font-medium bg-[#FAEEDA] px-2 py-1 rounded" style={{ fontFamily: "'Work Sans', sans-serif" }}>
                 ⚠ Community disagrees
@@ -111,15 +114,38 @@ export default function ResultsPage() {
             )}
           </div>
 
+          {/* Signal scores */}
           <div className="space-y-3">
             <h3 className="text-xs font-semibold uppercase tracking-wider text-[var(--text-secondary)]" style={{ fontFamily: "'Work Sans', sans-serif" }}>
               Signal Scores
             </h3>
             <SignalBar label="NLP Analysis" score={analysis.score_nlp || 0} />
             <SignalBar label="Source Trust" score={analysis.score_source || 0} />
+            <SignalBar label="ML Ensemble" score={analysis.score_ml || 0} />
+            {analysis.score_crosscheck != null && (
+              <SignalBar label="Cross-Check" score={analysis.score_crosscheck} />
+            )}
+          </div>
+
+          {/* Individual ML model scores */}
+          <div className="space-y-3 pt-4 border-t border-[var(--border-color)]">
+            <h3 className="text-xs font-semibold uppercase tracking-wider text-[var(--text-secondary)]" style={{ fontFamily: "'Work Sans', sans-serif" }}>
+              ML Model Breakdown
+            </h3>
             <SignalBar label="RoBERTa" score={analysis.score_roberta || 0} />
             <SignalBar label="LR Model" score={analysis.score_lr || 0} />
-            <SignalBar label="ML Ensemble" score={analysis.score_ml || 0} />
+          </div>
+
+          {/* Cross-verification panel */}
+          <div className="pt-4 border-t border-[var(--border-color)] space-y-2">
+            <h3 className="text-xs font-semibold uppercase tracking-wider text-[var(--text-secondary)]" style={{ fontFamily: "'Work Sans', sans-serif" }}>
+              Cross-Verification
+            </h3>
+            <CrosscheckPanel
+              sources={analysis.crosscheck_sources || []}
+              fallback={analysis.crosscheck_fallback}
+              score={analysis.score_crosscheck}
+            />
           </div>
 
           {/* Source info */}
@@ -132,8 +158,13 @@ export default function ResultsPage() {
                 {analysis.source_domain}
               </p>
               {analysis.source_info && !analysis.source_info.is_known && (
-                <span className="inline-block text-xs bg-[var(--surface-dim)] text-[var(--text-secondary)] px-2 py-0.5 rounded">
-                  Unverified domain
+                <span className="inline-flex items-center gap-1 text-xs bg-[var(--surface-dim)] text-[var(--text-secondary)] px-2 py-0.5 rounded border border-[var(--border-color)]">
+                  <span>⚠</span> Unverified domain
+                </span>
+              )}
+              {analysis.source_info && analysis.source_info.bias && analysis.source_info.bias !== "unknown" && (
+                <span className="inline-block text-xs bg-[var(--surface-dim)] text-[var(--text-secondary)] px-2 py-0.5 rounded border border-[var(--border-color)]">
+                  Bias: {analysis.source_info.bias}
                 </span>
               )}
             </div>
@@ -191,6 +222,33 @@ export default function ResultsPage() {
               {analysis.explanation || "No explanation available."}
             </p>
           </div>
+
+          {/* Corroborating sources — also shown in main content for prominence */}
+          {analysis.crosscheck_sources && analysis.crosscheck_sources.length > 0 && (
+            <div className="mb-8">
+              <h3
+                className="text-xs font-semibold uppercase tracking-wider text-[var(--text-secondary)] mb-3"
+                style={{ fontFamily: "'Work Sans', sans-serif" }}
+              >
+                Corroborating Sources
+              </h3>
+              <div className="flex flex-wrap gap-3">
+                {analysis.crosscheck_sources.map((s) => (
+                  <a
+                    key={s.domain}
+                    href={s.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-[#639922]/20 bg-[#EAF3DE]/30 text-xs font-medium text-[#27500A] hover:bg-[#EAF3DE] hover:border-[#639922]/40 transition-colors"
+                    style={{ fontFamily: "'Work Sans', sans-serif" }}
+                  >
+                    <span className="text-[#639922]">↗</span>
+                    {s.name || s.domain}
+                  </a>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* Sentence highlights */}
           {analysis.sentences && analysis.sentences.length > 0 && (
