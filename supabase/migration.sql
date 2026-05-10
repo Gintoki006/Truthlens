@@ -83,3 +83,46 @@ CREATE POLICY "Public read guest analyses"
 -- ============================================================================
 
 ALTER PUBLICATION supabase_realtime ADD TABLE analysis;
+
+
+-- ============================================================================
+-- Migration: Add crosscheck columns to analysis table (run after initial setup)
+-- ============================================================================
+
+ALTER TABLE analysis ADD COLUMN IF NOT EXISTS score_crosscheck INT;
+ALTER TABLE analysis ADD COLUMN IF NOT EXISTS crosscheck_sources JSONB;
+ALTER TABLE analysis ADD COLUMN IF NOT EXISTS crosscheck_fallback BOOLEAN DEFAULT FALSE;
+ALTER TABLE analysis ADD COLUMN IF NOT EXISTS article_age_hours INT;
+
+
+-- ============================================================================
+-- Table: bookmarks (saved articles per user)
+-- ============================================================================
+
+CREATE TABLE IF NOT EXISTS bookmarks (
+  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id         UUID NOT NULL REFERENCES auth.users ON DELETE CASCADE,
+  analysis_id     UUID NOT NULL REFERENCES analysis(id) ON DELETE CASCADE,
+  created_at      TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE(user_id, analysis_id)
+);
+
+-- Index for fast bookmark lookups
+CREATE INDEX IF NOT EXISTS idx_bookmarks_user
+  ON bookmarks (user_id, created_at DESC);
+
+-- RLS on bookmarks
+ALTER TABLE bookmarks ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Users read own bookmarks"
+  ON bookmarks FOR SELECT
+  USING (auth.uid() = user_id);
+
+CREATE POLICY "Users insert own bookmarks"
+  ON bookmarks FOR INSERT
+  WITH CHECK (auth.uid() = user_id);
+
+CREATE POLICY "Users delete own bookmarks"
+  ON bookmarks FOR DELETE
+  USING (auth.uid() = user_id);
+

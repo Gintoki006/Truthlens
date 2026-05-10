@@ -43,6 +43,7 @@ class AnalyzeResponse(BaseModel):
     article_age_hours: int | None = None
     verdict: str
     explanation: str
+    confidence_warning: str | None = None
     sentences: list[dict] = []
     source_info: dict = {}
     nlp_details: dict = {}
@@ -211,6 +212,7 @@ async def analyze(request: AnalyzeRequest):
         article_age_hours=article_age_hours,
         verdict=final["verdict"],
         explanation=explanation,
+        confidence_warning=nlp_result.get("confidence_warning"),
         sentences=sentences,
         source_info=source_result,
         nlp_details=nlp_result,

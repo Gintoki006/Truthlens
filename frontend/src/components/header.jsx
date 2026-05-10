@@ -127,6 +127,7 @@ export function Header({ forwardRef }) {
   const navLinks = [
     { label: 'Analysis', href: '/' },
     { label: 'History', href: '/history' },
+    { label: 'Saved', href: '/saved' },
     { label: 'Dashboard', href: '/dashboard' },
   ];
 

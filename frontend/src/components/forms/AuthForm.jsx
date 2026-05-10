@@ -158,6 +158,18 @@ export default function AuthForm({ mode: initialMode = "login" }) {
           />
         </div>
 
+        {mode === "login" && (
+          <div className="text-right">
+            <a
+              href="/forgot-password"
+              className="text-xs text-[#b7211f] font-medium hover:underline"
+              style={{ fontFamily: "'Work Sans', sans-serif" }}
+            >
+              Forgot password?
+            </a>
+          </div>
+        )}
+
         {error && (
           <p className="text-sm text-[#E24B4A]" style={{ fontFamily: "'Work Sans', sans-serif" }}>
             ⚠ {error}

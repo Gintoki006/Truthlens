@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { useAnalysis } from "@/hooks/useAnalysis";
+import { useAuth } from "@/context/AuthContext";
 import ScoreGauge from "@/components/ui/ScoreGauge";
 import VerdictBadge from "@/components/ui/VerdictBadge";
 import SignalBar from "@/components/ui/SignalBar";
@@ -12,8 +13,14 @@ import FallbackBadge from "@/components/ui/FallbackBadge";
 
 export default function ResultsPage() {
   const params = useParams();
+  const { user } = useAuth();
   const { analysis, loading, error } = useAnalysis(params.id);
   const [votes, setVotes] = useState({ up: 0, down: 0 });
+  const [bookmarked, setBookmarked] = useState(false);
+  const [bookmarkLoading, setBookmarkLoading] = useState(false);
+  const [rewrite, setRewrite] = useState(null);
+  const [rewriteLoading, setRewriteLoading] = useState(false);
+  const [showRewrite, setShowRewrite] = useState(false);
 
   useEffect(() => {
     if (analysis) {
@@ -23,6 +30,23 @@ export default function ResultsPage() {
       });
     }
   }, [analysis]);
+
+  // Check bookmark status
+  useEffect(() => {
+    if (!user || !params.id) return;
+    async function checkBookmark() {
+      try {
+        const res = await fetch(`/api/bookmarks?user_id=${user.id}&analysis_id=${params.id}`);
+        if (res.ok) {
+          const data = await res.json();
+          setBookmarked(data.bookmarked);
+        }
+      } catch (err) {
+        console.error("Bookmark check error:", err);
+      }
+    }
+    checkBookmark();
+  }, [user, params.id]);
 
   const handleVote = async (vote) => {
     try {
@@ -39,6 +63,53 @@ export default function ResultsPage() {
       }
     } catch (err) {
       console.error("Vote error:", err);
+    }
+  };
+
+  const handleBookmark = async () => {
+    if (!user) return;
+    setBookmarkLoading(true);
+    try {
+      const res = await fetch("/api/bookmarks", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ analysis_id: params.id, user_id: user.id }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setBookmarked(data.bookmarked);
+      }
+    } catch (err) {
+      console.error("Bookmark error:", err);
+    } finally {
+      setBookmarkLoading(false);
+    }
+  };
+
+  const handleRewrite = async () => {
+    if (rewrite) {
+      setShowRewrite(!showRewrite);
+      return;
+    }
+    setRewriteLoading(true);
+    try {
+      const res = await fetch("/api/rewrite", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          article_text: analysis.article_body,
+          article_title: analysis.article_title,
+        }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setRewrite(data);
+        setShowRewrite(true);
+      }
+    } catch (err) {
+      console.error("Rewrite error:", err);
+    } finally {
+      setRewriteLoading(false);
     }
   };
 
@@ -81,19 +152,35 @@ export default function ResultsPage() {
   return (
     <div className="min-h-screen bg-[var(--surface-bright)]">
       {/* Top bar */}
-      <header className="border-b border-[var(--border-color)] px-6 py-3 flex items-center justify-between">
+      <header className="border-b border-[var(--border-color)] px-4 md:px-6 py-3 flex items-center justify-between">
         <a href="/" className="text-xl font-bold text-[var(--text-primary)]" style={{ fontFamily: "'Newsreader', serif" }}>
           TruthLens
         </a>
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-2 md:gap-4">
           {analysis.source_domain && (
-            <span className="text-xs text-[var(--text-secondary)] truncate max-w-[200px]" style={{ fontFamily: "'Work Sans', sans-serif" }}>
+            <span className="text-xs text-[var(--text-secondary)] truncate max-w-[120px] md:max-w-[200px] hidden sm:inline" style={{ fontFamily: "'Work Sans', sans-serif" }}>
               {analysis.source_domain}
             </span>
           )}
+          {user && (
+            <button
+              onClick={handleBookmark}
+              disabled={bookmarkLoading}
+              className={`p-2 rounded-lg border transition-all duration-200 ${
+                bookmarked
+                  ? "border-[#b7211f]/30 bg-[#b7211f]/5 text-[#b7211f]"
+                  : "border-[var(--border-color)] text-[var(--text-secondary)] hover:text-[#b7211f] hover:border-[#b7211f]/30"
+              }`}
+              title={bookmarked ? "Remove bookmark" : "Bookmark this analysis"}
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill={bookmarked ? "currentColor" : "none"} stroke="currentColor" strokeWidth="2" xmlns="http://www.w3.org/2000/svg">
+                <path d="M17 3H7c-1.1 0-2 .9-2 2v16l7-3 7 3V5c0-1.1-.9-2-2-2z" />
+              </svg>
+            </button>
+          )}
           <a
             href="/"
-            className="px-4 py-1.5 text-xs font-medium text-[#b7211f] border border-[#b7211f]/30 rounded-lg hover:bg-[#b7211f]/5 transition-colors"
+            className="px-3 md:px-4 py-1.5 text-xs font-medium text-[#b7211f] border border-[#b7211f]/30 rounded-lg hover:bg-[#b7211f]/5 transition-colors"
             style={{ fontFamily: "'Work Sans', sans-serif" }}
           >
             Analyze again
@@ -101,9 +188,18 @@ export default function ResultsPage() {
         </div>
       </header>
 
+      {/* Confidence warning banner */}
+      {analysis.confidence_warning && (
+        <div className="bg-[#FAEEDA] border-b border-[#BA7517]/20 px-4 md:px-6 py-2.5">
+          <p className="text-xs text-[#633806] text-center" style={{ fontFamily: "'Work Sans', sans-serif" }}>
+            ⚠ {analysis.confidence_warning}
+          </p>
+        </div>
+      )}
+
       <div className="flex flex-col md:flex-row">
         {/* Sidebar */}
-        <aside className="w-full md:w-[280px] border-b md:border-b-0 md:border-r border-[var(--border-color)] p-6 space-y-6">
+        <aside className="w-full md:w-[280px] border-b md:border-b-0 md:border-r border-[var(--border-color)] p-4 md:p-6 space-y-5 md:space-y-6">
           <div className="space-y-3">
             <VerdictBadge verdict={analysis.verdict} size="lg" />
             {analysis.crosscheck_fallback && <FallbackBadge />}
@@ -193,7 +289,7 @@ export default function ResultsPage() {
         </aside>
 
         {/* Main content */}
-        <main className="flex-1 p-6 md:p-10 max-w-4xl">
+        <main className="flex-1 p-4 md:p-10 max-w-4xl">
           {/* Score gauge */}
           <div className="flex justify-center mb-8">
             <ScoreGauge score={analysis.score_final || 0} />
@@ -208,7 +304,7 @@ export default function ResultsPage() {
           </h1>
 
           {/* AI Explanation */}
-          <div className="mb-8 p-5 rounded-xl bg-[var(--surface-dim)] border border-[var(--border-color)]">
+          <div className="mb-8 p-4 md:p-5 rounded-xl bg-[var(--surface-dim)] border border-[var(--border-color)]">
             <h3
               className="text-xs font-semibold uppercase tracking-wider text-[var(--text-secondary)] mb-2"
               style={{ fontFamily: "'Work Sans', sans-serif" }}
@@ -216,14 +312,74 @@ export default function ResultsPage() {
               AI Explanation
             </h3>
             <p
-              className="text-base text-[var(--text-primary)] leading-relaxed"
+              className="text-sm md:text-base text-[var(--text-primary)] leading-relaxed"
               style={{ fontFamily: "'Newsreader', serif" }}
             >
               {analysis.explanation || "No explanation available."}
             </p>
           </div>
 
-          {/* Corroborating sources — also shown in main content for prominence */}
+          {/* Debiased Rewrite Button */}
+          {analysis.article_body && (
+            <div className="mb-8">
+              <button
+                onClick={handleRewrite}
+                disabled={rewriteLoading}
+                className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl border border-[var(--border-color)] bg-[var(--surface-bright)] text-[var(--text-primary)] text-sm font-medium hover:bg-[var(--surface-dim)] disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200"
+                style={{ fontFamily: "'Work Sans', sans-serif" }}
+              >
+                {rewriteLoading ? (
+                  <>
+                    <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24" fill="none">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" />
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                    </svg>
+                    Generating neutral version...
+                  </>
+                ) : showRewrite ? (
+                  <>📄 Hide neutral version</>
+                ) : (
+                  <>✨ Show neutral version</>
+                )}
+              </button>
+
+              {/* Side-by-side rewrite display */}
+              {showRewrite && rewrite && (
+                <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="p-4 rounded-xl border border-[#E24B4A]/20 bg-[#FCEBEB]/20">
+                    <h4
+                      className="text-xs font-semibold uppercase tracking-wider text-[#791F1F] mb-3"
+                      style={{ fontFamily: "'Work Sans', sans-serif" }}
+                    >
+                      Original
+                    </h4>
+                    <p
+                      className="text-sm text-[var(--text-primary)] leading-relaxed whitespace-pre-wrap"
+                      style={{ fontFamily: "'Newsreader', serif" }}
+                    >
+                      {rewrite.original}
+                    </p>
+                  </div>
+                  <div className="p-4 rounded-xl border border-[#639922]/20 bg-[#EAF3DE]/20">
+                    <h4
+                      className="text-xs font-semibold uppercase tracking-wider text-[#27500A] mb-3"
+                      style={{ fontFamily: "'Work Sans', sans-serif" }}
+                    >
+                      Neutral Rewrite
+                    </h4>
+                    <p
+                      className="text-sm text-[var(--text-primary)] leading-relaxed whitespace-pre-wrap"
+                      style={{ fontFamily: "'Newsreader', serif" }}
+                    >
+                      {rewrite.rewritten}
+                    </p>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Corroborating sources */}
           {analysis.crosscheck_sources && analysis.crosscheck_sources.length > 0 && (
             <div className="mb-8">
               <h3

@@ -1,5 +1,5 @@
 """
-NLP signal scoring (weight: 40% of final score).
+NLP signal scoring (weight: 25% of final score).
 
 Three sub-signals:
   1. VADER sentiment polarity → detects sensationalist language
@@ -92,23 +92,59 @@ def _score_clickbait(text: str) -> float:
     return score
 
 
+def _detect_english(text: str) -> bool:
+    """
+    Simple English language detection heuristic.
+    Checks the ratio of common English function words in the text.
+    Returns True if the text is likely English.
+    """
+    ENGLISH_WORDS = {
+        "the", "a", "an", "is", "are", "was", "were", "be", "been", "being",
+        "have", "has", "had", "do", "does", "did", "will", "would", "shall",
+        "should", "may", "might", "can", "could", "of", "in", "to", "for",
+        "with", "on", "at", "from", "by", "about", "as", "into", "through",
+        "and", "but", "or", "not", "no", "this", "that", "it", "he", "she",
+        "they", "we", "you", "i", "my", "your", "his", "her", "its", "our",
+        "their", "what", "which", "who", "when", "where", "how", "if", "then",
+    }
+    words = re.findall(r"[a-z]+", text.lower())
+    if len(words) < 10:
+        return True  # Too short to detect, assume English
+    english_count = sum(1 for w in words if w in ENGLISH_WORDS)
+    ratio = english_count / len(words)
+    return ratio >= 0.15  # At least 15% function words → likely English
+
+
 def compute_nlp_score(text: str) -> dict:
     """
     Compute the combined NLP signal score from three sub-signals.
+    Also detects language and flags non-English articles.
 
     Returns:
-        dict with keys: score, sentiment_score, subjectivity_score, clickbait_score
+        dict with keys: score, sentiment_score, subjectivity_score,
+                        clickbait_score, is_english, confidence_warning
     """
     sentiment = _score_sentiment(text)
     subjectivity = _score_subjectivity(text)
     clickbait = _score_clickbait(text)
+    is_english = _detect_english(text)
 
     # Weighted combination of sub-signals
     combined = round(sentiment * 0.35 + subjectivity * 0.35 + clickbait * 0.30)
 
-    return {
+    result = {
         "score": max(0, min(100, combined)),
         "sentiment_score": sentiment,
         "subjectivity_score": subjectivity,
         "clickbait_score": clickbait,
+        "is_english": is_english,
+        "confidence_warning": None,
     }
+
+    if not is_english:
+        result["confidence_warning"] = (
+            "This article appears to be in a non-English language. "
+            "NLP and ML models are English-only in v1.0 — results may be less accurate."
+        )
+
+    return result
