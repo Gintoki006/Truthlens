@@ -1,11 +1,16 @@
 """
 Score fusion and sentence-level scoring.
 
-Standard formula (4 signals):
-  final_score = (NLP × 0.25) + (Source × 0.30) + (ML × 0.25) + (Crosscheck × 0.20)
+5-signal fusion (v2 — with Fact Verification):
 
-Dynamic fallback (Serper returned no results AND article < 6 hours old):
-  final_score = (NLP × 0.31) + (Source × 0.38) + (ML × 0.31)
+Standard formula (URL input, all signals):
+  final = (NLP × 0.20) + (Source × 0.25) + (ML × 0.20) + (Crosscheck × 0.15) + (Fact × 0.20)
+
+Text-only formula (no source domain — boosts fact weight):
+  final = (NLP × 0.20) + (Source × 0.10) + (ML × 0.20) + (Crosscheck × 0.15) + (Fact × 0.35)
+
+Serper fallback (no crosscheck results, article < 6 hours old):
+  final = (NLP × 0.23) + (Source × 0.29) + (ML × 0.23) + (Fact × 0.25)
 
 Verdict mapping:
   70–100 → real   (green)
@@ -21,40 +26,63 @@ def compute_final_score(
     source_score: int,
     ml_score: int,
     crosscheck_score: int | None = None,
+    fact_score: int | None = None,
     article_age_hours: int | None = None,
     serper_results_count: int = 0,
+    input_type: str = "url",
+    source_domain: str | None = None,
 ) -> dict:
     """
     Fuse signal scores into a final authenticity score and verdict.
 
-    Uses the standard 4-signal formula when Serper data is available.
-    Falls back to a 3-signal formula when Serper returned no results
-    and the article is less than 6 hours old.
+    Selects the appropriate formula based on input type and signal availability:
+      1. Text-only formula: when no source domain is available (e.g. pasted text)
+      2. Serper fallback formula: when crosscheck data is unavailable or
+         article is too new for corroboration
+      3. Standard 5-signal formula: when all signals are available
 
     Returns:
-        dict with keys: score, verdict, crosscheck_fallback
+        dict with keys: score, verdict, crosscheck_fallback, formula_used
     """
-    # Determine whether to apply fallback
+    fact = fact_score if fact_score is not None else 50  # neutral default
+
+    # ── Formula selection ───────────────────────────────────────────────
     use_fallback = False
 
     if crosscheck_score is None:
-        # Serper unavailable (no API key or error) — always use fallback
         use_fallback = True
     elif serper_results_count == 0 and article_age_hours is not None and article_age_hours < 6:
-        # Serper returned 0 corroborating results on a fresh article
         use_fallback = True
 
-    if use_fallback:
-        # Redistribute Serper's 20% across the other three signals
-        score = round(nlp_score * 0.31 + source_score * 0.38 + ml_score * 0.31)
-    else:
-        # Standard 4-signal fusion
+    if input_type == "text" or not source_domain:
+        # Text-only formula — boost fact verification, reduce source credibility
         score = round(
-            nlp_score * 0.25
-            + source_score * 0.30
-            + ml_score * 0.25
-            + (crosscheck_score or 0) * 0.20
+            nlp_score * 0.20
+            + source_score * 0.10
+            + ml_score * 0.20
+            + (crosscheck_score or 0) * 0.15
+            + fact * 0.35
         )
+        formula_used = "text_only"
+    elif use_fallback:
+        # Serper fallback — drop crosscheck, redistribute to remaining 4 signals
+        score = round(
+            nlp_score * 0.23
+            + source_score * 0.29
+            + ml_score * 0.23
+            + fact * 0.25
+        )
+        formula_used = "serper_fallback"
+    else:
+        # Standard 5-signal fusion
+        score = round(
+            nlp_score * 0.20
+            + source_score * 0.25
+            + ml_score * 0.20
+            + (crosscheck_score or 0) * 0.15
+            + fact * 0.20
+        )
+        formula_used = "standard"
 
     score = max(0, min(100, score))
 
@@ -65,7 +93,12 @@ def compute_final_score(
     else:
         verdict = "fake"
 
-    return {"score": score, "verdict": verdict, "crosscheck_fallback": use_fallback}
+    return {
+        "score": score,
+        "verdict": verdict,
+        "crosscheck_fallback": use_fallback,
+        "formula_used": formula_used,
+    }
 
 
 def score_sentences(text: str, nlp_score: int) -> list[dict]:
