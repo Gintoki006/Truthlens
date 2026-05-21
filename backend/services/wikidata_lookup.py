@@ -147,13 +147,18 @@ def _get_entity_properties(entity_id: str) -> list[dict]:
     # P112 = founded by, P127 = owned by, P36 = capital, P37 = official language
     sparql = f"""
     SELECT ?propLabel ?valLabel WHERE {{
-      VALUES ?prop {{
+      VALUES ?wdProp {{
         wd:P31 wd:P17 wd:P137 wd:P131 wd:P27 wd:P495
         wd:P159 wd:P112 wd:P127 wd:P36 wd:P37 wd:P361
         wd:P176 wd:P178 wd:P170 wd:P138 wd:P571
       }}
+      ?wdProp wikibase:directClaim ?prop .
       wd:{entity_id} ?prop ?val .
-      SERVICE wikibase:label {{ bd:serviceParam wikibase:language "en". }}
+      SERVICE wikibase:label {{
+        bd:serviceParam wikibase:language "en".
+        ?wdProp rdfs:label ?propLabel .
+        ?val rdfs:label ?valLabel .
+      }}
     }}
     LIMIT 30
     """

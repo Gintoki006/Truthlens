@@ -126,3 +126,13 @@ CREATE POLICY "Users delete own bookmarks"
   ON bookmarks FOR DELETE
   USING (auth.uid() = user_id);
 
+
+-- ============================================================================
+-- Migration: Add fact verification columns to analysis table (Signal 5)
+-- ============================================================================
+
+ALTER TABLE analysis ADD COLUMN IF NOT EXISTS score_factcheck INT;
+ALTER TABLE analysis ADD COLUMN IF NOT EXISTS score_fever INT;
+ALTER TABLE analysis ADD COLUMN IF NOT EXISTS score_gfactcheck INT;
+ALTER TABLE analysis ADD COLUMN IF NOT EXISTS score_wikidata INT;
+ALTER TABLE analysis ADD COLUMN IF NOT EXISTS factcheck_details JSONB;

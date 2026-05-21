@@ -19,17 +19,17 @@ async def lifespan(app: FastAPI):
     from services.ml import load_models
     from services.nlp import download_nlp_resources
 
-    print("⏳ Loading ML models...")
+    print("[*] Loading ML models...")
     load_models()
-    print("✅ ML models loaded")
+    print("[OK] ML models loaded")
 
-    print("⏳ Downloading NLP resources...")
+    print("[*] Downloading NLP resources...")
     download_nlp_resources()
-    print("✅ NLP resources ready")
+    print("[OK] NLP resources ready")
 
     yield  # App is running
 
-    print("🛑 Shutting down...")
+    print("[STOP] Shutting down...")
 
 
 # ── App ─────────────────────────────────────────────────────────────────────

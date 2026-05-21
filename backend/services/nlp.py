@@ -63,9 +63,15 @@ def _score_sentiment(text: str) -> float:
     """
     vader = _get_vader()
     compound = vader.polarity_scores(text)["compound"]
-    # compound ranges from -1 to +1; extreme values → low score
-    neutrality = 1.0 - abs(compound)
-    return round(neutrality * 100)
+    
+    # Factual statements can have mild sentiment (e.g., "successfully landed").
+    # We only penalize if the sentiment is extremely polarized (abs > 0.6).
+    abs_comp = abs(compound)
+    if abs_comp < 0.6:
+        return 100.0
+        
+    neutrality = 1.0 - ((abs_comp - 0.6) / 0.4)
+    return round(max(0.0, neutrality * 100))
 
 
 def _score_subjectivity(text: str) -> float:
@@ -74,8 +80,15 @@ def _score_subjectivity(text: str) -> float:
     Score: 0 (very subjective) → 100 (very objective).
     """
     blob = TextBlob(text)
-    objectivity = 1.0 - blob.sentiment.subjectivity
-    return round(objectivity * 100)
+    subj = blob.sentiment.subjectivity
+    
+    # TextBlob often flags normal adjectives as highly subjective.
+    # We only penalize if subjectivity is extremely high (e.g., > 0.85).
+    if subj < 0.85:
+        return 100.0
+        
+    objectivity = 1.0 - ((subj - 0.85) / 0.15)
+    return round(max(0.0, objectivity * 100))
 
 
 def _score_clickbait(text: str) -> float:

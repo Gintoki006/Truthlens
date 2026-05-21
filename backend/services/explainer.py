@@ -46,6 +46,7 @@ def generate_explanation(
     crosscheck_score: int | None = None,
     corroborating_sources: list[dict] | None = None,
     crosscheck_fallback: bool = False,
+    factcheck_result: dict | None = None,
 ) -> str:
     """
     Generate a 2–4 sentence explanation of why the article received its verdict.
@@ -59,6 +60,9 @@ def generate_explanation(
         crosscheck_score, corroborating_sources, crosscheck_fallback
     )
 
+    # Build fact verification context
+    factcheck_text = _build_factcheck_text(factcheck_result)
+
     prompt = f"""You are a fact-checking assistant. Explain in 2-4 clear, plain-English sentences why this news article received its credibility verdict. Reference specific signals.
 
 Article: "{article_title}"
@@ -71,8 +75,9 @@ Signal Breakdown:
 - Source Credibility: {source_score}/100 (known: {source_info.get('is_known', False)}, category: {source_info.get('category', 'N/A')}, bias: {source_info.get('bias', 'N/A')})
 - ML Classification: {ml_score}/100 (RoBERTa: {roberta_score}, Logistic Regression: {lr_score})
 - Cross-Verification: {corroboration_text}
+- Fact Verification: {factcheck_text}
 
-Write a concise explanation. Do not use bullet points. Do not say "I" or mention yourself. Refer to the article in third person. If corroborating sources were found, mention the outlet names. If the story was too recent to verify, mention that."""
+Write a concise explanation. Do not use bullet points. Do not say "I" or mention yourself. Refer to the article in third person. If corroborating sources were found, mention the outlet names. If fact-checkers have verified this claim, mention their verdict. If the story was too recent to verify, mention that."""
 
     if client is None:
         # Template fallback — no LLM key configured
@@ -80,6 +85,7 @@ Write a concise explanation. Do not use bullet points. Do not say "I" or mention
             article_title, source_domain, verdict, final_score,
             nlp_score, source_score, ml_score, source_info, nlp_details,
             crosscheck_score, corroborating_sources, crosscheck_fallback,
+            factcheck_result,
         )
 
     try:
@@ -99,6 +105,7 @@ Write a concise explanation. Do not use bullet points. Do not say "I" or mention
             article_title, source_domain, verdict, final_score,
             nlp_score, source_score, ml_score, source_info, nlp_details,
             crosscheck_score, corroborating_sources, crosscheck_fallback,
+            factcheck_result,
         )
 
 
@@ -131,10 +138,41 @@ def _build_corroboration_text(
     return f"{crosscheck_score}/100 — Corroborated by: {outlet_list} ({len(sources)} trusted outlet{'s' if len(sources) != 1 else ''})"
 
 
+def _build_factcheck_text(factcheck_result: dict | None) -> str:
+    """Build a human-readable fact verification summary for the LLM prompt."""
+    if not factcheck_result:
+        return "Fact verification unavailable."
+
+    score = factcheck_result.get("score", 50)
+    parts = [f"{score}/100"]
+
+    # FEVER match
+    fever = factcheck_result.get("fever_details", {})
+    top_match = fever.get("top_match")
+    if top_match and top_match.get("similarity", 0) >= 0.70:
+        parts.append(f"FEVER dataset match: \"{top_match['claim']}\" ({top_match['label']}, {top_match['similarity']:.0%} similar)")
+
+    # Google Fact Check verdict
+    gfc = factcheck_result.get("gfactcheck_details", {})
+    if gfc.get("verdict"):
+        parts.append(f"Fact-checker verdict: {gfc['verdict']} (source: {gfc.get('source', 'Unknown')})")
+
+    # Wikidata confirmations
+    wiki = factcheck_result.get("wikidata_details", {})
+    entities = wiki.get("entity_results", [])
+    confirmed = [e for e in entities if e.get("confirmed")]
+    if confirmed:
+        names = ", ".join(e["entity"] for e in confirmed[:3])
+        parts.append(f"Wikidata confirmed: {names}")
+
+    return " \u2014 ".join(parts)
+
+
 def _template_explanation(
     article_title, source_domain, verdict, final_score,
     nlp_score, source_score, ml_score, source_info, nlp_details,
     crosscheck_score=None, corroborating_sources=None, crosscheck_fallback=False,
+    factcheck_result=None,
 ) -> str:
     """Generate a template-based explanation when no LLM is available."""
     parts = []
@@ -177,4 +215,21 @@ def _template_explanation(
     elif ml_score > 70:
         parts.append(f'Machine learning classifiers indicate the content is consistent with genuine reporting.')
 
-    return " ".join(parts[:4])  # Cap at 4 sentences
+    # Fact verification signal
+    if factcheck_result:
+        fact_score = factcheck_result.get("score", 50)
+        gfc = factcheck_result.get("gfactcheck_details", {})
+        wiki = factcheck_result.get("wikidata_details", {})
+        confirmed_entities = [e for e in wiki.get("entity_results", []) if e.get("confirmed")]
+
+        if gfc.get("verdict"):
+            parts.append(f'Fact-checkers rate this claim as "{gfc["verdict"]}" (via {gfc.get("source", "professional fact-checker")}).')
+        elif confirmed_entities:
+            names = ", ".join(e["entity"] for e in confirmed_entities[:2])
+            parts.append(f'Key entities ({names}) were verified against Wikidata\'s knowledge base.')
+        elif fact_score > 70:
+            parts.append(f'Fact verification supports this claim (score: {fact_score}/100).')
+        elif fact_score < 30:
+            parts.append(f'Fact verification raises concerns about the accuracy of this claim (score: {fact_score}/100).')
+
+    return " ".join(parts[:5])  # Cap at 5 sentences

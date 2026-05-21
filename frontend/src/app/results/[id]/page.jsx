@@ -10,6 +10,7 @@ import SignalBar from "@/components/ui/SignalBar";
 import SentenceHighlight from "@/components/ui/SentenceHighlight";
 import CrosscheckPanel from "@/components/ui/CrosscheckPanel";
 import FallbackBadge from "@/components/ui/FallbackBadge";
+import FactCheckPanel from "@/components/ui/FactCheckPanel";
 
 export default function ResultsPage() {
   const params = useParams();
@@ -221,6 +222,9 @@ export default function ResultsPage() {
             {analysis.score_crosscheck != null && (
               <SignalBar label="Cross-Check" score={analysis.score_crosscheck} />
             )}
+            {analysis.score_factcheck != null && (
+              <SignalBar label="Fact Check" score={analysis.score_factcheck} />
+            )}
           </div>
 
           {/* Individual ML model scores */}
@@ -243,6 +247,22 @@ export default function ResultsPage() {
               score={analysis.score_crosscheck}
             />
           </div>
+
+          {/* Fact verification panel */}
+          {analysis.score_factcheck != null && (
+            <div className="pt-4 border-t border-[var(--border-color)] space-y-2">
+              <h3 className="text-xs font-semibold uppercase tracking-wider text-[var(--text-secondary)]" style={{ fontFamily: "'Work Sans', sans-serif" }}>
+                Fact Verification
+              </h3>
+              <FactCheckPanel
+                score={analysis.score_factcheck}
+                scoreFever={analysis.score_fever}
+                scoreGfactcheck={analysis.score_gfactcheck}
+                scoreWikidata={analysis.score_wikidata}
+                details={analysis.factcheck_details}
+              />
+            </div>
+          )}
 
           {/* Source info */}
           {analysis.source_domain && (

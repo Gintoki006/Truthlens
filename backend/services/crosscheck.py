@@ -24,6 +24,58 @@ SERPER_URL = "https://google.serper.dev/search"
 # Score mapping: number of corroborating trusted outlets → crosscheck score
 _SCORE_MAP = {5: 100, 4: 85, 3: 70, 2: 50, 1: 30, 0: 10}
 
+# Common stop words to strip from search queries
+_STOP_WORDS = {
+    "a", "an", "the", "is", "was", "were", "are", "been", "be", "being",
+    "have", "has", "had", "do", "does", "did", "will", "would", "could",
+    "should", "shall", "may", "might", "can", "that", "this", "these",
+    "those", "it", "its", "in", "on", "at", "by", "for", "of", "to",
+    "from", "with", "and", "or", "but", "not", "no", "so", "if", "as",
+    "about", "which", "who", "whom", "what", "where", "when", "how",
+    "very", "also", "just", "than", "then", "into", "over", "after",
+    "before", "between", "under", "above", "during", "through", "an",
+    "successfully", "completely", "approximately", "actually", "really",
+}
+
+
+def _build_search_query(headline: str) -> str:
+    """
+    Build an optimised search query from a headline or claim.
+
+    For short text that looks like a headline, use it as-is.
+    For longer sentence-style claims (plain text input), extract key
+    nouns/proper nouns and build a shorter keyword query.
+    """
+    headline = headline.strip()
+
+    # If it looks like a real headline (short, no period at end), use as-is
+    if len(headline) <= 100 and not headline.endswith("."):
+        return headline[:120]
+
+    # Extract meaningful keywords for sentence-style claims
+    words = headline.replace(",", " ").replace(".", " ").split()
+    keywords = []
+
+    for word in words:
+        clean = word.strip("\"'()[]{}!?;:")
+        if not clean or clean.lower() in _STOP_WORDS or len(clean) <= 2:
+            continue
+        keywords.append(clean)
+
+    # Prioritise capitalised words (proper nouns / entities) — put them first
+    proper = [w for w in keywords if w[0].isupper()]
+    common = [w for w in keywords if not w[0].isupper()]
+
+    # Build query: proper nouns first, then important common words
+    query_words = proper + common
+    query = " ".join(query_words[:10])  # max 10 keywords
+
+    # Append trusted site hints to force Google to look for high-quality corroboration
+    site_hints = " (site:wikipedia.org OR site:bbc.com OR site:reuters.com OR site:apnews.com OR site:npr.org)"
+    base_query = query[:120] if query else headline[:120]
+    
+    return base_query + site_hints
+
 
 def _extract_domain(url: str) -> str:
     """Extract the bare domain from a URL (strip www. prefix)."""
@@ -83,8 +135,8 @@ def crosscheck(headline: str) -> dict:
             "serper_available": False,
         }
 
-    # Truncate headline to 120 chars per PRD spec
-    query = headline[:120] if headline else ""
+    # Build an optimized search query (extracts keywords for sentence-style claims)
+    query = _build_search_query(headline) if headline else ""
     if not query.strip():
         return {
             "crosscheck_score": 10,

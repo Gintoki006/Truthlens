@@ -41,14 +41,14 @@ def load_models():
     try:
         model_name = os.getenv("HF_MODEL_NAME", "hamzab/roberta-fake-news-classification").strip()
         if model_name.lower() in ["skip", "none", "false", ""]:
-            print("  ⚠️ Skipping RoBERTa model load due to HF_MODEL_NAME setting.")
+            print("  [WARN] Skipping RoBERTa model load due to HF_MODEL_NAME setting.")
             _roberta_pipeline = None
         else:
             from transformers import pipeline
             _roberta_pipeline = pipeline("text-classification", model=model_name)
-            print(f"  ✅ RoBERTa loaded: {model_name}")
+            print(f"  [OK] RoBERTa loaded: {model_name}")
     except Exception as e:
-        print(f"  ⚠️ RoBERTa failed to load: {e}")
+        print(f"  [WARN] RoBERTa failed to load: {e}")
         _roberta_pipeline = None
 
     # ── Model B: TF-IDF + Logistic Regression ───────────────────────────────
@@ -59,11 +59,11 @@ def load_models():
         try:
             _tfidf_vectorizer = joblib.load(tfidf_path)
             _lr_model = joblib.load(lr_path)
-            print("  ✅ TF-IDF + LR model loaded")
+            print("  [OK] TF-IDF + LR model loaded")
         except Exception as e:
-            print(f"  ⚠️ TF-IDF/LR failed to load: {e}")
+            print(f"  [WARN] TF-IDF/LR failed to load: {e}")
     else:
-        print(f"  ⚠️ Model B files not found at {MODELS_DIR}. Will use RoBERTa only.")
+        print(f"  [WARN] Model B files not found at {MODELS_DIR}. Will use RoBERTa only.")
 
     _models_loaded = True
 

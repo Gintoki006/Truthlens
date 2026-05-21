@@ -16,6 +16,7 @@ Scoring:
 
 import os
 import logging
+from difflib import SequenceMatcher
 
 import httpx
 
@@ -133,18 +134,51 @@ def compute_factcheck_score(claim: str) -> dict:
                 "available": True,
             }
 
-        # Use the first (most relevant) claim review
-        first_claim = claims[0]
-        claim_reviewed = first_claim.get("text", "")
+        # Find the most relevant claim using similarity matching.
+        # The API often returns tangentially related fact-checks (e.g. a debunking
+        # of a DIFFERENT claim about the same topic), so we filter by similarity.
+        best_match = None
+        best_similarity = 0.0
+        query_lower = query.lower().strip()
 
-        # A claim can have multiple reviews — use the first one
-        reviews = first_claim.get("claimReview", [])
+        for c in claims:
+            claim_reviewed = c.get("text", "")
+            if not claim_reviewed:
+                continue
+
+            # Compute similarity between our claim and the reviewed claim
+            similarity = SequenceMatcher(
+                None, query_lower, claim_reviewed.lower().strip()
+            ).ratio()
+
+            if similarity > best_similarity:
+                best_similarity = similarity
+                best_match = c
+
+        # Reject matches below 50% similarity — they're about a different claim
+        if best_match is None or best_similarity < 0.50:
+            logger.info(
+                f"Google Fact Check: Found {len(claims)} result(s) but none matched "
+                f"(best similarity: {best_similarity:.0%}). Returning neutral."
+            )
+            return {
+                "score": 50,
+                "verdict": None,
+                "source": None,
+                "claim_reviewed": claims[0].get("text", "") if claims else None,
+                "similarity": round(best_similarity, 2),
+                "available": True,
+            }
+
+        claim_reviewed = best_match.get("text", "")
+        reviews = best_match.get("claimReview", [])
         if not reviews:
             return {
                 "score": 50,
                 "verdict": None,
                 "source": None,
                 "claim_reviewed": claim_reviewed,
+                "similarity": round(best_similarity, 2),
                 "available": True,
             }
 
@@ -162,6 +196,7 @@ def compute_factcheck_score(claim: str) -> dict:
             "source": publisher_name,
             "claim_reviewed": claim_reviewed,
             "review_url": review_url,
+            "similarity": round(best_similarity, 2),
             "available": True,
         }
 

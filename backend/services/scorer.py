@@ -55,15 +55,23 @@ def compute_final_score(
         use_fallback = True
 
     if input_type == "text" or not source_domain:
-        # Text-only formula — boost fact verification, reduce source credibility
-        score = round(
-            nlp_score * 0.20
-            + source_score * 0.10
-            + ml_score * 0.20
-            + (crosscheck_score or 0) * 0.15
-            + fact * 0.35
-        )
-        formula_used = "text_only"
+        if use_fallback:
+            # Text-only without crosscheck
+            score = round(
+                nlp_score * 0.30
+                + ml_score * 0.45
+                + fact * 0.25
+            )
+            formula_used = "text_only_fallback"
+        else:
+            # Text-only formula — remove source credibility (neutral 50 adds noise), redistribute weights
+            score = round(
+                nlp_score * 0.20
+                + ml_score * 0.35
+                + (crosscheck_score or 0) * 0.25
+                + fact * 0.20
+            )
+            formula_used = "text_only"
     elif use_fallback:
         # Serper fallback — drop crosscheck, redistribute to remaining 4 signals
         score = round(

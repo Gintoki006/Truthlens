@@ -2,7 +2,7 @@
 POST /api/analyze — Main analysis endpoint.
 
 Accepts: { url?, text?, user_id? }
-Runs all four signals in parallel, fuses scores, generates explanation,
+Runs all five signals in parallel, fuses scores, generates explanation,
 stores result in Supabase, returns full result JSON.
 """
 
@@ -16,7 +16,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
 router = APIRouter()
-executor = ThreadPoolExecutor(max_workers=5)
+executor = ThreadPoolExecutor(max_workers=6)
 
 
 class AnalyzeRequest(BaseModel):
@@ -38,8 +38,14 @@ class AnalyzeResponse(BaseModel):
     score_roberta: int | None = None
     score_lr: int | None = None
     score_crosscheck: int | None = None
+    score_factcheck: int | None = None
+    score_fever: int | None = None
+    score_gfactcheck: int | None = None
+    score_wikidata: int | None = None
     crosscheck_sources: list[dict] = []
     crosscheck_fallback: bool = False
+    factcheck_details: dict = {}
+    formula_used: str | None = None
     article_age_hours: int | None = None
     verdict: str
     explanation: str
@@ -102,19 +108,21 @@ async def analyze(request: AnalyzeRequest):
         except Exception:
             article_age_hours = None
 
-    # ── Step 2: Run all four signals in parallel ────────────────────────
+    # ── Step 2: Run all five signals in parallel ────────────────────────
     from services.nlp import compute_nlp_score
     from services.source import compute_source_score
     from services.ml import compute_ml_score
     from services.crosscheck import crosscheck
+    from services.factcheck import compute_fact_score
 
     nlp_future = loop.run_in_executor(executor, compute_nlp_score, article_body)
     source_future = loop.run_in_executor(executor, compute_source_score, source_domain, authors)
     ml_future = loop.run_in_executor(executor, compute_ml_score, article_body)
     crosscheck_future = loop.run_in_executor(executor, crosscheck, article_title or article_body[:120])
+    factcheck_future = loop.run_in_executor(executor, compute_fact_score, article_body[:500])
 
-    nlp_result, source_result, ml_result, crosscheck_result = await asyncio.gather(
-        nlp_future, source_future, ml_future, crosscheck_future
+    nlp_result, source_result, ml_result, crosscheck_result, factcheck_result = await asyncio.gather(
+        nlp_future, source_future, ml_future, crosscheck_future, factcheck_future
     )
 
     # ── Step 3: Fuse scores ─────────────────────────────────────────────
@@ -125,8 +133,11 @@ async def analyze(request: AnalyzeRequest):
         source_score=source_result["score"],
         ml_score=ml_result["score"],
         crosscheck_score=crosscheck_result["crosscheck_score"],
+        fact_score=factcheck_result["score"],
         article_age_hours=article_age_hours,
         serper_results_count=crosscheck_result["results_found"],
+        input_type=input_type,
+        source_domain=source_domain,
     )
 
     sentences = await loop.run_in_executor(
@@ -153,6 +164,7 @@ async def analyze(request: AnalyzeRequest):
         crosscheck_result["crosscheck_score"],
         crosscheck_result["corroborating_sources"],
         final["crosscheck_fallback"],
+        factcheck_result,
     )
 
     # ── Step 5: Store in Supabase ───────────────────────────────────────
@@ -175,8 +187,18 @@ async def analyze(request: AnalyzeRequest):
             "score_roberta": ml_result["roberta_score"],
             "score_lr": ml_result["lr_score"],
             "score_crosscheck": crosscheck_result["crosscheck_score"],
+            "score_factcheck": factcheck_result["score"],
+            "score_fever": factcheck_result.get("score_fever"),
+            "score_gfactcheck": factcheck_result.get("score_gfactcheck"),
+            "score_wikidata": factcheck_result.get("score_wikidata"),
             "crosscheck_sources": crosscheck_result["corroborating_sources"],
             "crosscheck_fallback": final["crosscheck_fallback"],
+            "factcheck_details": {
+                "fever": factcheck_result.get("fever_details", {}),
+                "gfactcheck": factcheck_result.get("gfactcheck_details", {}),
+                "wikidata": factcheck_result.get("wikidata_details", {}),
+                "sub_signals_failed": factcheck_result.get("sub_signals_failed", []),
+            },
             "article_age_hours": article_age_hours,
             "verdict": final["verdict"],
             "explanation": explanation,
@@ -207,8 +229,19 @@ async def analyze(request: AnalyzeRequest):
         score_roberta=ml_result["roberta_score"],
         score_lr=ml_result["lr_score"],
         score_crosscheck=crosscheck_result["crosscheck_score"],
+        score_factcheck=factcheck_result["score"],
+        score_fever=factcheck_result.get("score_fever"),
+        score_gfactcheck=factcheck_result.get("score_gfactcheck"),
+        score_wikidata=factcheck_result.get("score_wikidata"),
         crosscheck_sources=crosscheck_result["corroborating_sources"],
         crosscheck_fallback=final["crosscheck_fallback"],
+        factcheck_details={
+            "fever": factcheck_result.get("fever_details", {}),
+            "gfactcheck": factcheck_result.get("gfactcheck_details", {}),
+            "wikidata": factcheck_result.get("wikidata_details", {}),
+            "sub_signals_failed": factcheck_result.get("sub_signals_failed", []),
+        },
+        formula_used=final.get("formula_used"),
         article_age_hours=article_age_hours,
         verdict=final["verdict"],
         explanation=explanation,
