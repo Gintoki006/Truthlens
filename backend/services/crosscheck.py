@@ -1,23 +1,14 @@
 """
 Signal 4 — Serper cross-verification (weight: 20% of final score).
 
-Searches Google via the Serper API for the article headline, checks the
-top 5 results against the Supabase `source` table, and counts how many
-come from trusted outlets (trust_score >= 70).
-
-Scoring map:
-  5 trusted → 100
-  4 trusted → 85
-  3 trusted → 70
-  2 trusted → 50
-  1 trusted → 30
-  0 trusted → 10
+Searches Google via the Serper API for the article headline using Gemini to
+extract topics, keywords, and subject. Checks results against Supabase `source` table.
 """
 
 import os
 from urllib.parse import urlparse
-
 import httpx
+from services.claim_analyzer import analyze_claim
 
 SERPER_URL = "https://google.serper.dev/search"
 
@@ -34,157 +25,7 @@ def _get_nlp():
         _nlp_model = spacy.load("en_core_web_sm")
     return _nlp_model
 
-_dynamic_site_hints = None
-
-def _get_dynamic_site_hints() -> str:
-    global _dynamic_site_hints
-    if _dynamic_site_hints is not None:
-        return _dynamic_site_hints
-
-    try:
-        from supabase import create_client
-        url = os.getenv("SUPABASE_URL")
-        key = os.getenv("SUPABASE_SERVICE_KEY")
-        if not url or not key:
-            return ""
-
-        supabase = create_client(url, key)
-        result = supabase.table("source").select("domain").eq("category", "reliable").gte("trust_score", 85).order("trust_score", desc=True).limit(10).execute()
-        
-        if result.data:
-            domains = [row["domain"] for row in result.data]
-            _dynamic_site_hints = " (" + " OR ".join(f"site:{d}" for d in domains) + ")"
-            print(f"[STARTUP] Dynamic site hints loaded: {_dynamic_site_hints}")
-            return _dynamic_site_hints
-    except Exception as e:
-        print(f"Error loading dynamic site hints: {e}")
-
-    # Fallback if DB is empty or connection fails
-    _dynamic_site_hints = " (site:wikipedia.org OR site:bbc.com OR site:reuters.com OR site:apnews.com OR site:ndtv.com OR site:thehindu.com OR site:npr.org)"
-    return _dynamic_site_hints
-
-
-def _extract_query_keywords(text: str) -> list[str]:
-    """
-    Use spaCy NER + POS to extract the most meaningful search terms.
-    Prioritizes named entities, falls back to proper nouns.
-    Returns at most 6 terms.
-    """
-    nlp = _get_nlp()
-    doc = nlp(text)
-
-    # Named entities first — most specific
-    keywords = [
-        ent.text for ent in doc.ents
-        if ent.label_ in ("ORG", "GPE", "EVENT", "PERSON", "PRODUCT", "DATE", "LOC", "NORP")
-    ]
-
-    # Fallback to proper nouns if NER found nothing
-    if not keywords:
-        keywords = [
-            token.text for token in doc
-            if token.pos_ == "PROPN" and not token.is_stop and len(token.text) > 2
-        ]
-
-    # Deduplicate while preserving order
-    seen = set()
-    unique = []
-    for k in keywords:
-        if k.lower() not in seen:
-            seen.add(k.lower())
-            unique.append(k)
-
-    return unique[:6]
-
-
-def _build_search_query(headline: str, is_text_only: bool = False) -> str:
-    """
-    Build an optimised search query using spaCy NER.
-    Always anchor the search with the primary subject in quotes.
-    """
-    headline = headline.strip()
-    site_hints = _get_dynamic_site_hints()
-    
-    if not is_text_only and len(headline) <= 120 and not headline.endswith("."):
-        return headline[:120] + site_hints
-    
-    keywords = _extract_query_keywords(headline)
-    
-    # Always put the primary subject first and quoted
-    # Primary subject = first ORG/PRODUCT/EVENT/GPE/PERSON/FAC entity found
-    nlp = _get_nlp()
-    doc = nlp(headline)
-    primary_subject = next(
-        (ent.text for ent in doc.ents 
-         if ent.label_ in ("ORG", "PRODUCT", "EVENT", "GPE", "PERSON", "FAC")),
-        None
-    )
-
-    if not primary_subject:
-        # Fallback — use first proper noun
-        primary_subject = next(
-            (t.text for t in doc if t.pos_ == "PROPN"), 
-            headline[:50]
-        )
-
-    # Only the subject — quoted — plus site hints
-    # Never include the predicate/modifier (the potentially false part)
-    query = f'"{primary_subject}" {site_hints}'
-    print(f"[SERPER QUERY] is_text_only={is_text_only} | query={query}")
-    return query
-
 # ─── Contradiction Detection ──────────────────────────────────────────────────
-
-def extract_topic_keywords(claim: str) -> list[str]:
-    """
-    Extract non-entity content words that define what the claim is ABOUT.
-    These are the words that should appear in a truly corroborating article.
-    Filters out stopwords and the primary subject itself.
-    """
-    nlp = _get_nlp()
-    doc = nlp(claim)
-    
-    # Get entity texts to exclude (primary subject words)
-    entity_words = {token.lower() for ent in doc.ents for token in ent.text.lower().split()}
-    
-    # Keep meaningful non-entity words — nouns, verbs, adjectives
-    topic_words = [
-        token.lemma_.lower() for token in doc
-        if not token.is_stop
-        and not token.is_punct
-        and token.pos_ in ("NOUN", "VERB", "ADJ")
-        and token.lower_ not in entity_words
-        and len(token.text) > 3
-    ]
-    
-    print(f"[CROSSCHECK] Topic keywords: {topic_words}")
-    return topic_words
-
-
-def is_topically_relevant(claim: str, article_title: str, article_snippet: str = "") -> bool:
-    """
-    Check if an article is actually about the claim's topic,
-    not just about the primary subject in a different context.
-    
-    Requires at least 1 topic keyword to appear in title or snippet.
-    """
-    topic_keywords = extract_topic_keywords(claim)
-    
-    if not topic_keywords:
-        return True  # can't determine — give benefit of doubt
-    
-    searchable_text = (article_title + " " + article_snippet).lower()
-    
-    matches = [kw for kw in topic_keywords if kw in searchable_text]
-    
-    print(
-        f"[CROSSCHECK] Relevance check: matches={matches} | "
-        f"title='{article_title[:60]}'"
-    )
-    
-    # At least 1 topic keyword must appear
-    return len(matches) > 0
-
 
 def extract_named_entities_from_text(text: str) -> list[str]:
     nlp = _get_nlp()
@@ -210,12 +51,8 @@ def is_same_nationality(ent1: str, ent2: str) -> bool:
     labels1 = {t.ent_type_ for t in doc1}
     labels2 = {t.ent_type_ for t in doc2}
     
-    # If one is a NORP (nationality adjective like "Japanese") and 
-    # the other is a GPE (place), they might refer to the same country.
-    # Only flag contradiction if BOTH are countries/nationalities,
-    # not if one is a city.
     if "GPE" in labels1 and "NORP" in labels2:
-        return True   # likely same country expressed differently
+        return True
     if "NORP" in labels1 and "GPE" in labels2:
         return True
 
@@ -278,47 +115,13 @@ def _extract_domain(url: str) -> str:
         return ""
 
 
-def _lookup_sources_batch(domains: list[str]) -> dict:
-    """
-    Look up multiple domains in the Supabase `source` table in one query.
-
-    Returns:
-        dict mapping domain → {trust_score, category, ...}
-    """
-    from supabase import create_client
-
-    url = os.getenv("SUPABASE_URL")
-    key = os.getenv("SUPABASE_SERVICE_KEY")
-    supabase = create_client(url, key)
-
-    # Supabase .in_() filter for batch lookup
-    result = supabase.table("source").select("*").in_("domain", domains).execute()
-
-    lookup = {}
-    if result.data:
-        for row in result.data:
-            lookup[row["domain"]] = row
-    return lookup
-
-
-def crosscheck(headline: str, is_text_only: bool = False) -> dict:
+async def crosscheck(headline: str, is_text_only: bool = False) -> dict:
     """
     Cross-verify an article headline via Serper (Google Search).
-
-    Args:
-        headline: The article headline or primary claim (will be truncated to 120 chars).
-        is_text_only: Whether the input is a plain text snippet rather than a URL.
-
-    Returns:
-        dict with keys:
-          - crosscheck_score (int 0–100)
-          - corroborating_sources (list of dicts: [{name, domain, url, trust_score}])
-          - results_found (int: number of corroborating trusted outlets)
     """
-    api_key = os.getenv("SERPER_API_KEY")
+    SERPER_API_KEY = os.getenv("SERPER_API_KEY")
 
-    if not api_key or api_key in ("your-serper-api-key", ""):
-        # No Serper key configured — return null-like result so fallback triggers
+    if not SERPER_API_KEY or SERPER_API_KEY in ("your-serper-api-key", ""):
         return {
             "crosscheck_score": None,
             "corroborating_sources": [],
@@ -326,10 +129,49 @@ def crosscheck(headline: str, is_text_only: bool = False) -> dict:
             "serper_available": False,
         }
 
-    # Build an optimized search query (extracts keywords for sentence-style claims)
-    query = _build_search_query(headline, is_text_only) if headline else ""
+    from supabase import create_client
+    url = os.getenv("SUPABASE_URL")
+    key = os.getenv("SUPABASE_SERVICE_KEY")
+    supabase_client = create_client(url, key)
+
+    # Step 1 — Gemini classifies claim + extracts keywords + subject
+    claim_analysis = await analyze_claim(headline)
+    topic        = claim_analysis.get("topic", "general")
+    keywords     = claim_analysis.get("keywords", [])
+    subject      = claim_analysis.get("primary_subject", headline[:60])
+
+    print(f"[CROSSCHECK] topic={topic} | keywords={keywords} | subject={subject}")
+
+    # Step 2 — Pull topic-relevant trusted domains from Supabase
+    response = supabase_client.table("source") \
+        .select("domain, trust_score, category, topics") \
+        .gte("trust_score", 70) \
+        .execute()
+
+    all_trusted = response.data or []
+
+    # Filter to topic-relevant domains
+    topic_domains = [
+        row for row in all_trusted
+        if not row.get("topics")                          # empty topics = general, always include
+        or topic in (row.get("topics") or [])
+        or "general" in (row.get("topics") or [])
+    ]
+
+    # Take top 8 by trust_score for site hints
+    top_domains = sorted(topic_domains, key=lambda x: x["trust_score"], reverse=True)[:8]
+    site_hints = " OR ".join(f"site:{row['domain']}" for row in top_domains)
     
-    print(f"[SERPER QUERY] is_text_only={is_text_only} | query={query}")
+    if site_hints:
+        site_hints = f"({site_hints})"
+
+    print(f"[CROSSCHECK] site hints → {site_hints}")
+
+    # Step 3 — Build Serper query
+    keyword_str = " ".join(keywords[:3])  # top 3 keywords keeps query clean
+    query = f'"{subject}" {keyword_str} {site_hints}'.strip()
+
+    print(f"[CROSSCHECK] Serper query → {query}")
     
     if not query.strip():
         return {
@@ -340,93 +182,52 @@ def crosscheck(headline: str, is_text_only: bool = False) -> dict:
         }
 
     try:
-        with httpx.Client(timeout=10.0) as client:
-            resp = client.post(
+        # Step 4 — Run Serper
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.post(
                 SERPER_URL,
-                headers={
-                    "X-API-KEY": api_key,
-                    "Content-Type": "application/json",
-                },
-                json={"q": query, "num": 5},
+                headers={"X-API-KEY": SERPER_API_KEY, "Content-Type": "application/json"},
+                json={"q": query[:200], "num": 5}
             )
             resp.raise_for_status()
+            
+        raw_results = resp.json().get("organic", [])
+        print(f"[CROSSCHECK] Serper returned {len(raw_results)} results")
 
-        results = resp.json().get("organic", [])
-        print(f"[CROSSCHECK] Serper returned {len(results)} results")
-
-        if not results:
-            return {
-                "crosscheck_score": 10,
-                "corroborating_sources": [],
-                "results_found": 0,
-                "serper_available": True,
-            }
-
-        # Extract domains from search results
-        result_domains = []
-        domain_to_result = {}
-        for r in results:
-            link = r.get("link", "")
-            domain = _extract_domain(link)
-            if domain:
-                result_domains.append(domain)
-                domain_to_result[domain] = r
-
-        # Batch lookup in source table
-        source_lookup = _lookup_sources_batch(result_domains) if result_domains else {}
+        # Build source lookup from the trusted domains we already fetched
+        source_lookup = {row["domain"]: row for row in all_trusted}
 
         CORROBORATING_CATEGORIES = {"reliable"}
-        NON_CORROBORATING_CATEGORIES = {"fake", "conspiracy", "junksci", "hate", "clickbait"}
 
-        # Find corroborating sources based on category
+        # Step 5 — Score results using keyword relevance check
         corroborating = []
-        for r in results:
-            link = r.get("link", "")
-            domain = _extract_domain(link)
-            if not domain:
-                continue
-                
-            source_data = source_lookup.get(domain)
-            in_db = source_data is not None
-            trust_score = source_data.get("trust_score", "N/A") if source_data else "N/A"
-            category = source_data.get("category", "") if source_data else ""
-            
-            print(f"[CROSSCHECK]   raw={link} | normalized={domain} | in_db={in_db} | score={trust_score} | category={category} | title={r.get('title', '')[:50]}")
-            
-            if not source_data:
-                print(f"[CROSSCHECK] ❌ skipped {domain} — not in DB")
+        for r in raw_results:
+            domain = _extract_domain(r.get("link", ""))
+            source = source_lookup.get(domain)
+
+            if not source or source.get("category") not in CORROBORATING_CATEGORIES:
                 continue
 
-            if category in CORROBORATING_CATEGORIES:
-                # Check if this reliable article's title contradicts the claim
-                title = r.get("title", "")
-                snippet = r.get("snippet", "")
-                
-                # Check topical relevance BEFORE counting as corroboration
-                if not is_topically_relevant(headline, title, snippet):
-                    print(
-                        f"[CROSSCHECK] ❌ skipped {domain} — article not about this claim | "
-                        f"title='{title[:60]}'"
-                    )
-                    continue
-                    
-                if is_contradicted_by_title(headline, title):
-                    print(f"[CROSSCHECK] ⚠️ skipped {domain} — title contradicts claim | title='{title}'")
-                    continue
+            title   = r.get("title", "")
+            snippet = r.get("snippet", "")
+            searchable = (title + " " + snippet).lower()
 
-                corroborating.append({
-                    "name": r.get("title", domain),
-                    "domain": domain,
-                    "url": link,
-                    "trust_score": trust_score,
-                })
-                print(f"[CROSSCHECK] ✅ corroborated by {domain} (category={category})")
-            elif category in NON_CORROBORATING_CATEGORIES:
-                # Finding the claim exclusively on fake news networks doesn't corroborate it
-                print(f"[CROSSCHECK] ❌ skipped {domain} — known untrustworthy category: {category}")
-            else:
-                # Neutral/unclassified category
-                print(f"[CROSSCHECK] ❌ skipped {domain} — category '{category}' is not explicitly reliable")
+            matches = [kw for kw in keywords if kw.lower() in searchable]
+
+            if not matches and keywords:
+                print(f"[CROSSCHECK] ❌ skipped {domain} — keyword mismatch | title='{title[:60]}'")
+                continue
+
+            if is_contradicted_by_title(headline, title):
+                continue
+
+            corroborating.append({
+                "name": source.get("name", domain),
+                "domain": domain,
+                "url": r.get("link", ""),
+                "trust_score": source["trust_score"]
+            })
+            print(f"[CROSSCHECK] ✅ corroborated by {domain} | matches={matches}")
 
         count = len(corroborating)
         crosscheck_score = _SCORE_MAP.get(min(count, 5), 10)
@@ -436,6 +237,8 @@ def crosscheck(headline: str, is_text_only: bool = False) -> dict:
             "corroborating_sources": corroborating,
             "results_found": count,
             "serper_available": True,
+            "topic": topic,
+            "keywords_used": keywords
         }
 
     except Exception as e:

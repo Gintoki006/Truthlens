@@ -119,7 +119,7 @@ async def analyze(request: AnalyzeRequest):
     nlp_future = loop.run_in_executor(executor, compute_nlp_score, article_body)
     source_future = loop.run_in_executor(executor, compute_source_score, source_domain, authors)
     ml_future = loop.run_in_executor(executor, compute_ml_score, article_body)
-    crosscheck_future = loop.run_in_executor(executor, crosscheck, article_title or article_body[:120], input_type == "text")
+    crosscheck_future = asyncio.create_task(crosscheck(article_title or article_body[:120], input_type == "text"))
     factcheck_future = loop.run_in_executor(executor, compute_fact_score, article_body[:500])
 
     nlp_result, source_result, ml_result, crosscheck_result, factcheck_result = await asyncio.gather(
