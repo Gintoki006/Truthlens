@@ -39,6 +39,7 @@ backend/.venv/
 backend/*.pyc
 backend/.env
 # backend/models/*.pkl
+backend/data/fever_cache/
 
 # Docs (keep local only)
 prd.md

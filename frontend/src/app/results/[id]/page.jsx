@@ -150,6 +150,40 @@ export default function ResultsPage() {
     );
   }
 
+  // Reconstruct groups if they were fetched flat from Supabase
+  const groups = analysis.groups || {
+    content: {
+      score: Math.round((analysis.score_nlp * 0.40) + (analysis.score_ml * 0.60)),
+      sub_signals: {
+        nlp: analysis.score_nlp || 0,
+        roberta: analysis.score_roberta || 0,
+        lr_model: analysis.score_lr || 0,
+        ml_ensemble: analysis.score_ml || 0
+      }
+    },
+    source: {
+      score: Math.round((analysis.score_source * 0.50) + ((analysis.score_crosscheck || 0) * 0.50)),
+      sub_signals: {
+        domain_trust: analysis.score_source || 0,
+        crosscheck: analysis.score_crosscheck || 0
+      }
+    },
+    facts: analysis.score_factcheck != null ? {
+      score: analysis.score_factcheck || 0,
+      sub_signals: {
+        factcheck: analysis.score_gfactcheck || 50,
+        wikidata: analysis.score_wikidata || 50,
+        fever: analysis.score_fever || 50
+      },
+      factcheck_result: {
+        rating: analysis.factcheck_details?.gfactcheck?.verdict || null,
+        checker: analysis.factcheck_details?.gfactcheck?.source || null,
+        url: analysis.factcheck_details?.gfactcheck?.review_url || null,
+      },
+      wikidata_status: (analysis.score_wikidata || 50) >= 90 ? "confirmed" : ((analysis.score_wikidata || 50) <= 20 ? "contradicted" : "unverified")
+    } : null
+  };
+
   const communityDisagrees =
     (analysis.verdict === "real" && votes.down >= 5) ||
     (analysis.verdict === "fake" && votes.up >= 5);
@@ -220,48 +254,48 @@ export default function ResultsPage() {
           </div>
 
           {/* Signal Groups */}
-          {analysis.groups && (
+          {groups && (
             <div className="space-y-3 pt-4 border-t border-[var(--border-color)]">
               <h3 className="text-xs font-semibold uppercase tracking-wider text-[var(--text-secondary)]" style={{ fontFamily: "'Work Sans', sans-serif" }}>
                 Signal Groups
               </h3>
               
-              {analysis.groups.content && (
+              {groups.content && (
                 <GroupScoreBar 
                   groupKey="content" 
                   label="Content Intelligence" 
-                  score={analysis.groups.content.score} 
-                  subSignals={analysis.groups.content.sub_signals} 
+                  score={groups.content.score} 
+                  subSignals={groups.content.sub_signals} 
                 />
               )}
               
-              {analysis.groups.source && (
+              {groups.source && (
                 <GroupScoreBar 
                   groupKey="source" 
                   label="Source & Corroboration" 
-                  score={analysis.groups.source.score} 
-                  subSignals={analysis.groups.source.sub_signals} 
+                  score={groups.source.score} 
+                  subSignals={groups.source.sub_signals} 
                 />
               )}
               
-              {analysis.groups.facts && (
+              {groups.facts && (
                 <GroupScoreBar 
                   groupKey="facts" 
                   label="Fact Verification" 
-                  score={analysis.groups.facts.score} 
-                  subSignals={analysis.groups.facts.sub_signals} 
+                  score={groups.facts.score} 
+                  subSignals={groups.facts.sub_signals} 
                 />
               )}
             </div>
           )}
 
           {/* Fact Check and Wikidata Badges */}
-          {analysis.groups?.facts?.factcheck_result?.rating && (
-            <FactCheckBadge result={analysis.groups.facts.factcheck_result} />
+          {groups?.facts?.factcheck_result?.rating && (
+            <FactCheckBadge result={groups.facts.factcheck_result} />
           )}
           
-          {analysis.groups?.facts?.wikidata_status && (
-            <WikidataBadge status={analysis.groups.facts.wikidata_status} />
+          {groups?.facts?.wikidata_status && groups.facts.wikidata_status !== "unverified" && (
+            <WikidataBadge status={groups.facts.wikidata_status} />
           )}
 
           {/* Cross-verification panel */}
