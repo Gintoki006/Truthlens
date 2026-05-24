@@ -155,8 +155,8 @@ def compute_factcheck_score(claim: str) -> dict:
                 best_similarity = similarity
                 best_match = c
 
-        # Reject matches below 50% similarity — they're about a different claim
-        if best_match is None or best_similarity < 0.50:
+        # Reject matches below 72% similarity — they're about a different claim
+        if best_match is None or best_similarity < 0.72:
             logger.info(
                 f"Google Fact Check: Found {len(claims)} result(s) but none matched "
                 f"(best similarity: {best_similarity:.0%}). Returning neutral."

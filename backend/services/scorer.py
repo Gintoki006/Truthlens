@@ -49,43 +49,48 @@ def compute_final_score(
     if factcheck_result is None:
         factcheck_result = {}
 
-    # ── 1. Calculate Group Scores ───────────────────────────────────────
+    # ── 1. Calculate Group Scores (Default URL mode) ────────────────────
     content_score = round((nlp_score * 0.40) + (ml_score * 0.60))
     source_score_group = round((source_score * 0.50) + ((crosscheck_score or 0) * 0.50))
     facts_score = factcheck_result.get("score", 50)
 
     # ── 2. Formula Selection & Fusion ───────────────────────────────────
-    use_fallback = False
-    if crosscheck_score is None:
-        use_fallback = True
-    elif serper_results_count == 0 and article_age_hours is not None and article_age_hours < 6:
-        use_fallback = True
-
     formula_used = "standard"
     text_only_formula = False
 
-    if input_type == "text" or not source_domain:
+    if (input_type == "text" or not source_domain):
         text_only_formula = True
-        if use_fallback:
+        if crosscheck_score is None:
             # Text-only without crosscheck
-            final_score = round((content_score * 0.50) + (facts_score * 0.50))
+            final_score = round((nlp_score * 0.30) + (ml_score * 0.40) + (facts_score * 0.30))
             formula_used = "text_only_fallback"
         else:
             final_score = round(
-                (content_score * 0.40)
-                + ((crosscheck_score or 0) * 0.20)
-                + (facts_score * 0.40)
+                (nlp_score * 0.20)
+                + (ml_score * 0.35)
+                + (crosscheck_score * 0.25)
+                + (facts_score * 0.20)
             )
             formula_used = "text_only"
-    elif use_fallback:
-        final_score = round((content_score * 0.50) + (facts_score * 0.50))
+    elif serper_results_count == 0 and article_age_hours is not None and article_age_hours < 6:
+        final_score = round(
+            (nlp_score * 0.23)
+            + (source_score * 0.29)
+            + (ml_score * 0.23)
+            + (facts_score * 0.25)
+        )
         formula_used = "serper_fallback"
     else:
         final_score = round(
-            (content_score * 0.35)
-            + (source_score_group * 0.30)
-            + (facts_score * 0.35)
+            (nlp_score * 0.20)
+            + (source_score * 0.25)
+            + (ml_score * 0.20)
+            + ((crosscheck_score or 0) * 0.15)
+            + (facts_score * 0.20)
         )
+        formula_used = "standard"
+
+    use_fallback = "fallback" in formula_used
 
     # ── 3. Override Rules ───────────────────────────────────────────────
     override_applied = None
@@ -134,6 +139,11 @@ def compute_final_score(
     else:
         verdict = "fake"
 
+    # Adjust Group Scores for Text-Only Mode
+    if text_only_formula:
+        content_score = round((nlp_score * (0.20 / 0.55)) + (ml_score * (0.35 / 0.55)))
+        source_score_group = crosscheck_score or 0
+
     return {
         "score": final_score,
         "verdict": verdict,
@@ -145,7 +155,7 @@ def compute_final_score(
         "groups": {
             "content": {
                 "score": content_score,
-                "weight": 0.40 if text_only_formula else (0.50 if use_fallback else 0.35),
+                "weight": 0.55 if text_only_formula else (0.50 if use_fallback else 0.40),
                 "sub_signals": {
                     "nlp": nlp_score,
                     "roberta": ml_roberta_score,
@@ -155,8 +165,10 @@ def compute_final_score(
             },
             "source": {
                 "score": source_score_group,
-                "weight": 0.0 if use_fallback else (0.20 if text_only_formula else 0.30),
+                "weight": 0.0 if use_fallback else (0.25 if text_only_formula else 0.40),
                 "sub_signals": {
+                    "crosscheck": crosscheck_score or 0
+                } if text_only_formula else {
                     "domain_trust": source_score,
                     "crosscheck": crosscheck_score or 0
                 },
@@ -166,7 +178,7 @@ def compute_final_score(
             },
             "facts": {
                 "score": facts_score,
-                "weight": 0.40 if text_only_formula else (0.50 if use_fallback else 0.35),
+                "weight": 0.20 if text_only_formula else (0.50 if use_fallback else 0.20),
                 "sub_signals": {
                     "factcheck": factcheck_result.get("score_gfactcheck", 50),
                     "wikidata": factcheck_result.get("score_wikidata", 50),

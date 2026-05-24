@@ -100,9 +100,13 @@ def _score_clickbait(text: str) -> float:
     matches = sum(
         1 for pattern in CLICKBAIT_PATTERNS if re.search(pattern, text_lower)
     )
-    # Penalise: each match removes ~12 points, floor at 0
-    score = max(0, 100 - matches * 12)
-    return score
+    
+    if matches == 0:
+        return 100.0
+    elif matches == 1:
+        return 70.0  # 30% clickbait penalty
+    else:
+        return max(0.0, 100.0 - (matches * 25.0))
 
 
 def _detect_english(text: str) -> bool:

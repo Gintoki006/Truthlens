@@ -63,16 +63,18 @@ def generate_explanation(
     # Build fact verification context
     factcheck_text = _build_factcheck_text(factcheck_result)
 
+    # Build Source Context to avoid LLM hallucinating about missing domains
+    source_context = "No source domain — scored on content only" if not source_domain else f"Domain: {source_domain}, trust: {source_score}/100 (known: {source_info.get('is_known', False)}, category: {source_info.get('category', 'N/A')}, bias: {source_info.get('bias', 'N/A')})"
+
     prompt = f"""You are a fact-checking assistant. Explain in 2-4 clear, plain-English sentences why this news article received its credibility verdict. Reference specific signals.
 
 Article: "{article_title}"
-Source: {source_domain}
 Final Score: {final_score}/100
 Verdict: {verdict}
 
 Signal Breakdown:
 - NLP Text Analysis: {nlp_score}/100 (sentiment: {nlp_details.get('sentiment_score', 'N/A')}, subjectivity: {nlp_details.get('subjectivity_score', 'N/A')}, clickbait: {nlp_details.get('clickbait_score', 'N/A')})
-- Source Credibility: {source_score}/100 (known: {source_info.get('is_known', False)}, category: {source_info.get('category', 'N/A')}, bias: {source_info.get('bias', 'N/A')})
+- Source Credibility: {source_context}
 - ML Classification: {ml_score}/100 (RoBERTa: {roberta_score}, Logistic Regression: {lr_score})
 - Cross-Verification: {corroboration_text}
 - Fact Verification: {factcheck_text}

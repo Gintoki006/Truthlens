@@ -151,9 +151,11 @@ export default function ResultsPage() {
   }
 
   // Reconstruct groups if they were fetched flat from Supabase
+  // Reconstruct groups if they were fetched flat from Supabase
   const groups = analysis.groups || {
     content: {
-      score: Math.round((analysis.score_nlp * 0.40) + (analysis.score_ml * 0.60)),
+      score: analysis.text_only_formula ? Math.round((analysis.score_nlp * (0.20/0.55)) + (analysis.score_ml * (0.35/0.55))) : Math.round((analysis.score_nlp * 0.40) + (analysis.score_ml * 0.60)),
+      weight: analysis.text_only_formula ? 0.55 : 0.40,
       sub_signals: {
         nlp: analysis.score_nlp || 0,
         roberta: analysis.score_roberta || 0,
@@ -162,8 +164,11 @@ export default function ResultsPage() {
       }
     },
     source: {
-      score: Math.round((analysis.score_source * 0.50) + ((analysis.score_crosscheck || 0) * 0.50)),
-      sub_signals: {
+      score: analysis.text_only_formula ? (analysis.score_crosscheck || 0) : Math.round((analysis.score_source * 0.50) + ((analysis.score_crosscheck || 0) * 0.50)),
+      weight: analysis.text_only_formula ? 0.25 : 0.40,
+      sub_signals: analysis.text_only_formula ? {
+        crosscheck: analysis.score_crosscheck || 0
+      } : {
         domain_trust: analysis.score_source || 0,
         crosscheck: analysis.score_crosscheck || 0
       }
