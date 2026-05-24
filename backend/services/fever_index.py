@@ -170,7 +170,7 @@ def compute_fever_score(claim: str) -> dict:
         return {"score": 50, "top_match": None, "matches": [], "error": str(e)}
 
     if not matches:
-        return {"score": 50, "top_match": None, "matches": []}
+        return {"score": 10, "top_match": None, "matches": []}
 
     top = matches[0]
 
@@ -184,8 +184,8 @@ def compute_fever_score(claim: str) -> dict:
             # Scale: 0.85 → 15, 1.0 → 5
             score = max(5, round(15 - (top["similarity"] - 0.85) * 67))
         else:
-            # NOT ENOUGH INFO — neutral
-            score = 50
+            # NOT ENOUGH INFO — penalize
+            score = 10
     elif top["similarity"] >= 0.70:
         # Moderate similarity — partial signal
         if top["label"] == "SUPPORTS":
@@ -193,10 +193,10 @@ def compute_fever_score(claim: str) -> dict:
         elif top["label"] == "REFUTES":
             score = round(40 - (top["similarity"] - 0.70) * 167)  # 40–15
         else:
-            score = 50
+            score = 10
     else:
-        # Low similarity — claim not in FEVER, return neutral
-        score = 50
+        # Low similarity — claim not in FEVER, return penalty
+        score = 10
 
     return {
         "score": max(0, min(100, score)),

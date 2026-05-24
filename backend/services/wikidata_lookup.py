@@ -1,22 +1,15 @@
 import httpx
 import time
 import logging
+import json
+import os
+import re
 from functools import lru_cache
 
 logger = logging.getLogger(__name__)
 
-_nlp = None
-
-def _get_nlp():
-    global _nlp
-    if _nlp is None:
-        try:
-            import spacy
-            _nlp = spacy.load("en_core_web_sm")
-        except OSError:
-            logger.error("spaCy model 'en_core_web_sm' not found.")
-            _nlp = None
-    return _nlp
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+GEMINI_URL = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={GEMINI_API_KEY}"
 
 WIKIDATA_SPARQL = "https://query.wikidata.org/sparql"
 
@@ -38,32 +31,82 @@ WIKIDATA_PROPERTIES = [
     "wd:P577",  # publication date
 ]
 
+def _call_gemini_json(prompt: str) -> dict:
+    if not GEMINI_API_KEY or GEMINI_API_KEY == "your-gemini-key":
+        logger.warning("[WIKIDATA] Gemini API Key not set.")
+        return {}
 
-def extract_claim_entities(text: str) -> list[dict]:
-    nlp_model = _get_nlp()
-    if not nlp_model:
-        return []
+    try:
+        with httpx.Client(timeout=10.0) as client:
+            resp = client.post(
+                GEMINI_URL,
+                json={
+                    "contents": [{"parts": [{"text": prompt}]}],
+                    "generationConfig": {
+                        "temperature": 0,
+                        "maxOutputTokens": 1024,
+                        "responseMimeType": "application/json"
+                    }
+                }
+            )
+            resp.raise_for_status()
+            
+            raw = resp.json()["candidates"][0]["content"]["parts"][0]["text"].strip()
+            
+            match = re.search(r'\{.*\}', raw, re.DOTALL)
+            if match:
+                raw = match.group(0)
+            else:
+                raw = raw.replace("```json", "").replace("```", "").strip()
+                
+            return json.loads(raw)
+    except Exception as e:
+        logger.warning(f"[WIKIDATA] Gemini call failed: {e}")
+        return {}
 
-    doc = nlp_model(text)
-    entities = []
-    seen = set()
+def get_primary_subject(claim: str) -> str:
+    prompt = f"""You are an entity extraction assistant.
+Extract the single main primary subject (Person, Organization, Product, Event, or Location) from the claim below.
+Keep it as short as possible (e.g. "Chandrayaan-3" instead of "the Chandrayaan-3 mission").
+If there is no clear entity, return an empty string.
 
-    for ent in doc.ents:
-        normalized = ent.text.lower().strip()
-        if normalized in seen:
-            continue
-        seen.add(normalized)
+Claim: "{claim}"
 
-        if ent.label_ in ("ORG", "GPE", "NORP", "LOC", "PERSON", "PRODUCT", "EVENT", "FAC"):
-            entities.append({
-                "text": ent.text,
-                "normalized": normalized,
-                "label": ent.label_
-            })
+Return ONLY raw JSON in this format:
+{{
+  "primary_subject": "Name"
+}}"""
+    
+    result = _call_gemini_json(prompt)
+    return result.get("primary_subject", "")
 
-    logger.info(f"[WIKIDATA] Extracted entities from claim: {entities}")
-    return entities
+def evaluate_facts(claim: str, facts: dict) -> dict:
+    prompt = f"""You are a factual verification assistant.
+Compare the user's claim against the provided confirmed Wikidata facts.
 
+Claim: "{claim}"
+Wikidata Facts: {json.dumps(facts)}
+
+Determine if the Wikidata facts confirm the claim, contradict the claim, partially confirm/contradict (mixed), or if they are neutral (they provide no relevant information to verify or debunk the specific claim).
+
+Return ONLY raw JSON in this format:
+{{
+  "status": "confirmed" | "contradicted" | "mixed" | "neutral",
+  "reason": "Brief explanation of what the facts say and how they relate to the claim."
+}}"""
+
+    result = _call_gemini_json(prompt)
+    if not result:
+        return {"status": "neutral", "reason": "Failed to evaluate facts using Gemini"}
+    
+    status = result.get("status", "neutral")
+    if status not in ("confirmed", "contradicted", "mixed", "neutral"):
+        status = "neutral"
+        
+    return {
+        "status": status,
+        "reason": result.get("reason", "No reason provided")
+    }
 
 def run_sparql_with_retry(query: str, max_retries: int = 3) -> list:
     for attempt in range(max_retries):
@@ -120,9 +163,8 @@ def get_wikidata_facts_cached(entity_text: str) -> tuple:
         if prop and val:
             facts[prop] = val
 
-    logger.info(f"[WIKIDATA] Facts for '{entity_text}': {facts}")
+    logger.info(f"[WIKIDATA] Facts for '{entity_text}': {{facts}}")
     return tuple(facts.items())
-
 
 @lru_cache(maxsize=256)
 def get_entity_via_rest(entity_text: str) -> tuple:
@@ -159,121 +201,63 @@ def get_entity_via_rest(entity_text: str) -> tuple:
         description = descriptions.get("en", {}).get("value", "")
         label = labels.get("en", {}).get("value", "")
 
-        logger.info(f"[WIKIDATA REST] {entity_text} → label='{label}' description='{description}'")
+        logger.info(f"[WIKIDATA REST] {entity_text} → label='{{label}}' description='{{description}}'")
         return (("description", description.lower()), ("label", label.lower()))
 
     except Exception as e:
         logger.warning(f"[WIKIDATA REST] Failed for '{entity_text}': {e}")
         return tuple()
 
-
-def check_entity_against_facts(claim_entity: dict, subject_facts: dict) -> str:
-    claim_norm = claim_entity["normalized"]
-    wikidata_values = " ".join(subject_facts.values())
-
-    if not subject_facts:
-        return "neutral"
-
-    if claim_norm in wikidata_values:
-        return "confirmed"
-
-    nlp_model = _get_nlp()
-    if not nlp_model:
-        return "neutral"
-        
-    wikidata_doc = nlp_model(wikidata_values)
-    wikidata_named_entities = [
-        ent.text.lower() for ent in wikidata_doc.ents
-        if ent.label_ in ("GPE", "ORG", "NORP", "LOC", "PERSON", "PRODUCT")
-    ]
-
-    if wikidata_named_entities and claim_norm not in wikidata_named_entities:
-        if claim_entity["label"] in ("GPE", "NORP", "ORG", "LOC", "PERSON"):
-            logger.info(
-                f"[WIKIDATA] CONTRADICTION: claim='{claim_norm}' "
-                f"but Wikidata has {wikidata_named_entities}"
-            )
-            return "contradicted"
-
-    return "neutral"
-
-
 def verify_entities(claim_text: str) -> dict:
-    claim_entities = extract_claim_entities(claim_text)
+    primary_subject = get_primary_subject(claim_text)
 
-    if not claim_entities:
-        logger.info("[WIKIDATA] No entities found in claim — returning neutral")
-        return {"score": 50, "reason": "no entities found", "details": {}}
+    if not primary_subject:
+        logger.info("[WIKIDATA] No entities found in claim — returning penalty")
+        return {"score": 10, "reason": "no entities found", "details": {}}
 
-    all_confirmations = []
-    all_contradictions = []
-    entity_facts_map = {}
+    logger.info(f"[WIKIDATA] Primary subject: {primary_subject}")
 
-    subject_priority = ["ORG", "PRODUCT", "EVENT", "PERSON", "GPE", "LOC"]
-    subject_entity = None
-    for label in subject_priority:
-        subject_entity = next((e for e in claim_entities if e["label"] == label), None)
-        if subject_entity:
-            break
-    if not subject_entity:
-        subject_entity = claim_entities[0]
-
-    logger.info(f"[WIKIDATA] Primary subject: {subject_entity}")
-
-    subject_rest_tuple = get_entity_via_rest(subject_entity["text"])
+    subject_rest_tuple = get_entity_via_rest(primary_subject)
     subject_rest = dict(subject_rest_tuple)
     
-    subject_facts_tuple = get_wikidata_facts_cached(subject_entity["text"])
+    subject_facts_tuple = get_wikidata_facts_cached(primary_subject)
     subject_facts = dict(subject_facts_tuple)
 
-    # Combine REST description into subject_facts so check_entity_against_facts can check it
     if subject_rest.get("description"):
         subject_facts["description"] = subject_rest["description"]
         
-    entity_facts_map[subject_entity["text"]] = subject_facts
+    if not subject_facts:
+        logger.info("[WIKIDATA] Entity not found in Wikidata — returning penalty")
+        return {
+            "score": 10,
+            "reason": "Entity not found in Wikidata",
+            "subject": primary_subject,
+            "subject_facts": {},
+            "details": {}
+        }
 
-    other_entities = [e for e in claim_entities if e["text"] != subject_entity["text"]]
-
-    for ent in other_entities:
-        result = check_entity_against_facts(ent, subject_facts)
-        logger.info(f"[WIKIDATA] '{ent['text']}' ({ent['label']}) → {result}")
-
-        if result == "confirmed":
-            all_confirmations.append(ent["text"])
-        elif result == "contradicted":
-            all_contradictions.append(ent["text"])
-
-    if all_contradictions and not all_confirmations:
+    evaluation = evaluate_facts(claim_text, subject_facts)
+    status = evaluation["status"]
+    reason = evaluation["reason"]
+    
+    logger.info(f"[WIKIDATA] Gemini evaluation for '{primary_subject}': {status} - {reason}")
+    
+    if status == "contradicted":
         score = 10
-        reason = f"Wikidata contradicts: {all_contradictions}"
-    elif all_confirmations and not all_contradictions:
+    elif status == "confirmed":
         score = 90
-        reason = f"Wikidata confirms: {all_confirmations}"
-    elif all_confirmations and all_contradictions:
+    elif status == "mixed":
         score = 35
-        reason = f"Mixed: confirmed {all_confirmations}, contradicted {all_contradictions}"
-    elif not other_entities:
-        if subject_facts:
-            score = 60
-            reason = f"Entity '{subject_entity['text']}' found in Wikidata, no predicates to verify"
-        else:
-            score = 50
-            reason = "Entity not found in Wikidata"
+    elif status == "neutral":
+        score = 60
     else:
-        score = 50
-        reason = "No overlap found — neutral"
+        score = 10
 
     return {
         "score": score,
         "reason": reason,
-        "subject": subject_entity["text"],
+        "subject": primary_subject,
         "subject_facts": subject_facts,
-        "confirmations": all_confirmations,
-        "contradictions": all_contradictions,
-        "details": entity_facts_map,
-        "entity_results": [
-            {"entity": e, "confirmed": True} for e in all_confirmations
-        ] + [
-            {"entity": e, "confirmed": False} for e in all_contradictions
-        ]
+        "status": status,
+        "details": {primary_subject: subject_facts}
     }

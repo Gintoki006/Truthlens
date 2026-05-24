@@ -6,114 +6,23 @@ extract topics, keywords, and subject. Checks results against Supabase `source` 
 """
 
 import os
+import json
+import logging
 from urllib.parse import urlparse
 import httpx
 from services.claim_analyzer import analyze_claim
+
+logger = logging.getLogger(__name__)
 
 SERPER_URL = "https://google.serper.dev/search"
 
 # Score mapping: number of corroborating trusted outlets → crosscheck score
 _SCORE_MAP = {5: 100, 4: 85, 3: 70, 2: 50, 1: 30, 0: 10}
 
-_nlp_model = None
-
-def _get_nlp():
-    """Lazily load spaCy model."""
-    global _nlp_model
-    if _nlp_model is None:
-        import spacy
-        _nlp_model = spacy.load("en_core_web_sm")
-    return _nlp_model
-
-# ─── Contradiction Detection ──────────────────────────────────────────────────
-
-def extract_named_entities_from_text(text: str) -> list[str]:
-    nlp = _get_nlp()
-    doc = nlp(text)
-    return [
-        ent.text.lower().strip()
-        for ent in doc.ents
-        if ent.label_ in ("ORG", "GPE", "NORP", "LOC", "PERSON", "PRODUCT", "EVENT")
-    ]
-
-
-def is_same_nationality(ent1: str, ent2: str) -> bool:
-    """
-    Check if two geographic entities are related 
-    (city within a country, demonym of same country etc.)
-    Uses simple substring matching on common cases.
-    spaCy doesn't resolve this, so we check if one contains the other's root.
-    """
-    nlp = _get_nlp()
-    doc1 = nlp(ent1)
-    doc2 = nlp(ent2)
-    
-    labels1 = {t.ent_type_ for t in doc1}
-    labels2 = {t.ent_type_ for t in doc2}
-    
-    if "GPE" in labels1 and "NORP" in labels2:
-        return True
-    if "NORP" in labels1 and "GPE" in labels2:
-        return True
-
-    return False
-
-
-def is_contradicted_by_title(claim: str, article_title: str) -> bool:
-    nlp = _get_nlp()
-    claim_doc = nlp(claim)
-    title_doc = nlp(article_title)
-
-    claim_by_label = {}
-    for ent in claim_doc.ents:
-        if ent.label_ in ("GPE", "NORP", "ORG", "PERSON", "LOC"):
-            claim_by_label.setdefault(ent.label_, []).append(ent.text.lower())
-
-    title_by_label = {}
-    for ent in title_doc.ents:
-        if ent.label_ in ("GPE", "NORP", "ORG", "PERSON", "LOC"):
-            title_by_label.setdefault(ent.label_, []).append(ent.text.lower())
-
-    nationality_labels = {"NORP", "GPE"}
-    claim_nationality = [
-        e for label in nationality_labels
-        for e in claim_by_label.get(label, [])
-    ]
-    title_nationality = [
-        e for label in nationality_labels
-        for e in title_by_label.get(label, [])
-    ]
-
-    if claim_nationality and title_nationality:
-        for c_nat in claim_nationality:
-            for t_nat in title_nationality:
-                if c_nat not in t_nat and t_nat not in c_nat:
-                    if not is_same_nationality(c_nat, t_nat):
-                        print(
-                            f"[CROSSCHECK] ⚠️ CONTRADICTION DETECTED: "
-                            f"claim says '{c_nat}' but title mentions '{t_nat}' | title='{article_title}'"
-                        )
-                        return True
-
-    return False
-
-
-def _extract_domain(url: str) -> str:
-    """Extract the bare domain from a URL (strip common prefixes)."""
-    try:
-        netloc = urlparse(url).netloc.lower()
-        if netloc.startswith("www."):
-            netloc = netloc[4:]
-        if netloc.startswith("m."):
-            netloc = netloc[2:]
-        if netloc.startswith("news."):
-            netloc = netloc[5:]
-        if netloc.startswith("en."):
-            netloc = netloc[3:]
-        return netloc
-    except Exception:
-        return ""
-
+from services.crosscheck_utils import (
+    _extract_domain,
+    is_relevant_by_snippet
+)
 
 async def crosscheck(headline: str, is_text_only: bool = False) -> dict:
     """
@@ -268,26 +177,45 @@ async def crosscheck(headline: str, is_text_only: bool = False) -> dict:
                 print(f"[CROSSCHECK] ❌ skipped {domain} — keyword mismatch | title='{title[:60]}'")
                 continue
 
-            if is_contradicted_by_title(headline, title):
+            # NEW: Groq Semantic Relevance Check
+            groq_result = await is_relevant_by_snippet(headline, title, snippet)
+            if not groq_result["relevant"]:
+                print(f"[CROSSCHECK] ❌ skipped {domain} — Groq deemed irrelevant | title='{title[:60]}'")
                 continue
 
+            stance = groq_result["stance"]
             seen_domains.add(domain)  # mark domain as counted
             corroborating.append({
                 "name": source.get("name", domain),
                 "domain": domain,
                 "url": r.get("link", ""),
-                "trust_score": source["trust_score"]
+                "trust_score": source["trust_score"],
+                "stance": stance
             })
-            print(f"[CROSSCHECK] ✅ corroborated by {domain} | matches={matches}")
+
+            if stance == "debunks":
+                print(f"[CROSSCHECK] ⚠️ {domain} DEBUNKS this claim — counting against")
+                continue
+            elif stance == "supports":
+                print(f"[CROSSCHECK] ✅ {domain} SUPPORTS claim | matches={matches}")
+            else:
+                print(f"[CROSSCHECK] ➡️ {domain} NEUTRAL on claim | matches={matches}")
         # After first pass
         MAX_ROUNDS = 4  # max 4 Serper calls = 4 × 10 = 40 results total
         round_num  = 2
+        
+        # Keep track of domains we have already searched so we can paginate them
+        queried_domains = set([r["domain"] for r in combined])
 
         while len(corroborating) < 5 and round_num <= MAX_ROUNDS:
             fresh_domains = [
                 r for r in (exact_domains + general_domains)
-                if r["domain"] not in seen_domains
+                if r["domain"] not in queried_domains
             ][:12]
+
+            # Mark these fresh domains as queried so the next round moves on
+            for r in fresh_domains:
+                queried_domains.add(r["domain"])
 
             if not fresh_domains:
                 print(f"[CROSSCHECK] no fresh domains left — stopping at round {round_num}")
@@ -329,22 +257,34 @@ async def crosscheck(headline: str, is_text_only: bool = False) -> dict:
 
                     if not matches and keywords:
                         continue
-                    if is_contradicted_by_title(headline, title):
+
+                    # NEW: Groq Semantic Relevance Check
+                    groq_result = await is_relevant_by_snippet(headline, title, snippet)
+                    if not groq_result["relevant"]:
+                        print(f"[CROSSCHECK] ❌ skipped {domain} (round {round_num}) — Groq deemed irrelevant | title='{title[:60]}'")
                         continue
 
+                    stance = groq_result["stance"]
                     seen_domains.add(domain)
                     found_new = True
                     corroborating.append({
                         "name": source.get("name", domain),
                         "domain": domain,
                         "url": r.get("link", ""),
-                        "trust_score": source["trust_score"]
+                        "trust_score": source["trust_score"],
+                        "stance": stance
                     })
-                    print(f"[CROSSCHECK] ✅ round {round_num} corroborated by {domain} | matches={matches}")
+
+                    if stance == "debunks":
+                        print(f"[CROSSCHECK] ⚠️ {domain} DEBUNKS this claim (round {round_num})")
+                        continue
+                    elif stance == "supports":
+                        print(f"[CROSSCHECK] ✅ {domain} SUPPORTS claim (round {round_num}) | matches={matches}")
+                    else:
+                        print(f"[CROSSCHECK] ➡️ {domain} NEUTRAL on claim (round {round_num}) | matches={matches}")
 
                 if not found_new:
-                    print(f"[CROSSCHECK] round {round_num} found no new domains — stopping")
-                    break
+                    print(f"[CROSSCHECK] round {round_num} found no new domains — moving to next round")
 
             except Exception as e:
                 print(f"[CROSSCHECK] Round {round_num} error: {e}")
@@ -352,15 +292,92 @@ async def crosscheck(headline: str, is_text_only: bool = False) -> dict:
 
             round_num += 1
 
+        # Final fallback — if still under 5 sources, search without site hints
+        if len(corroborating) < 5:
+            query_fallback = f'"{subject}" {keyword_str} fact check'.strip()
+            print(f"[CROSSCHECK] Fallback round — no site hints | query -> {query_fallback}")
+
+            try:
+                async with httpx.AsyncClient(timeout=10.0) as client:
+                    resp_fallback = await client.post(
+                        SERPER_URL,
+                        headers={"X-API-KEY": SERPER_API_KEY, "Content-Type": "application/json"},
+                        json={"q": query_fallback[:200], "num": 10}
+                    )
+                    resp_fallback.raise_for_status()
+
+                raw_fallback = resp_fallback.json().get("organic", [])
+                print(f"[CROSSCHECK] Fallback returned {len(raw_fallback)} results")
+
+                for r in raw_fallback:
+                    if len(corroborating) >= 5:
+                        break
+
+                    domain = _extract_domain(r.get("link", ""))
+                    source = source_lookup.get(domain)
+
+                    # In fallback — accept any trusted domain, not just reliable
+                    if not source or source.get("trust_score", 0) < 70:
+                        continue
+                    if domain in seen_domains:
+                        continue
+
+                    title      = r.get("title", "")
+                    snippet    = r.get("snippet", "")
+                    searchable = (title + " " + snippet).lower()
+                    matches    = [kw for kw in keywords if kw.lower() in searchable]
+
+                    if not matches and keywords:
+                        continue
+                    
+                    # Groq Semantic Relevance Check
+                    groq_result = await is_relevant_by_snippet(headline, title, snippet)
+                    if not groq_result["relevant"]:
+                        print(f"[CROSSCHECK] ❌ skipped {domain} (fallback) — Groq deemed irrelevant | title='{title[:60]}'")
+                        continue
+
+                    stance = groq_result["stance"]
+                    seen_domains.add(domain)
+                    corroborating.append({
+                        "name": source.get("name", domain),
+                        "domain": domain,
+                        "url": r.get("link", ""),
+                        "trust_score": source["trust_score"],
+                        "stance": stance
+                    })
+
+                    if stance == "debunks":
+                        print(f"[CROSSCHECK] ⚠️ {domain} DEBUNKS this claim (fallback)")
+                        continue
+                    elif stance == "supports":
+                        print(f"[CROSSCHECK] ✅ {domain} SUPPORTS claim (fallback) | matches={matches}")
+                    else:
+                        print(f"[CROSSCHECK] ➡️ {domain} NEUTRAL on claim (fallback) | matches={matches}")
+
+            except Exception as e:
+                print(f"[CROSSCHECK] Fallback round error: {e}")
+
         print(f"[CROSSCHECK] final unique corroborating domains: {len(corroborating)}/5")
 
-        count = len(corroborating)
+        # Score only sources that support or are neutral — not debunking ones
+        supporting = [s for s in corroborating if s.get("stance") != "debunks"]
+        debunking  = [s for s in corroborating if s.get("stance") == "debunks"]
+
+        count = len(supporting)
         crosscheck_score = _SCORE_MAP.get(min(count, 5), 10)
+
+        # Penalise for debunking sources — each trusted outlet debunking reduces score
+        if debunking:
+            penalty = min(len(debunking) * 15, 40)  # max -40 penalty
+            crosscheck_score = max(crosscheck_score - penalty, 0)
+            print(f"[CROSSCHECK] ⚠️ {len(debunking)} debunking sources — penalty -{penalty}")
+
+        print(f"[CROSSCHECK] supporting={len(supporting)} | debunking={len(debunking)} | score={crosscheck_score}")
 
         return {
             "crosscheck_score": crosscheck_score,
             "corroborating_sources": corroborating,
-            "results_found": count,
+            "results_found": len(corroborating),
             "serper_available": True,
             "topic": topic,
             "keywords_used": keywords

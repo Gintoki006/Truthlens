@@ -125,9 +125,9 @@ def compute_factcheck_score(claim: str) -> dict:
         claims = data.get("claims", [])
 
         if not claims:
-            # No fact-checker has reviewed this claim — neutral
+            # No fact-checker has reviewed this claim — heavily penalize
             return {
-                "score": 50,
+                "score": 10,
                 "verdict": None,
                 "source": None,
                 "claim_reviewed": None,
@@ -159,10 +159,10 @@ def compute_factcheck_score(claim: str) -> dict:
         if best_match is None or best_similarity < 0.72:
             logger.info(
                 f"Google Fact Check: Found {len(claims)} result(s) but none matched "
-                f"(best similarity: {best_similarity:.0%}). Returning neutral."
+                f"(best similarity: {best_similarity:.0%}). Returning 10."
             )
             return {
-                "score": 50,
+                "score": 10,
                 "verdict": None,
                 "source": None,
                 "claim_reviewed": claims[0].get("text", "") if claims else None,
@@ -174,7 +174,7 @@ def compute_factcheck_score(claim: str) -> dict:
         reviews = best_match.get("claimReview", [])
         if not reviews:
             return {
-                "score": 50,
+                "score": 10,
                 "verdict": None,
                 "source": None,
                 "claim_reviewed": claim_reviewed,
