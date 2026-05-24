@@ -142,36 +142,79 @@ async def crosscheck(headline: str, is_text_only: bool = False) -> dict:
 
     print(f"[CROSSCHECK] topic={topic} | keywords={keywords} | subject={subject}")
 
-    # Step 2 — Pull topic-relevant trusted domains from Supabase
-    response = supabase_client.table("source") \
-        .select("domain, trust_score, category, topics") \
-        .gte("trust_score", 70) \
-        .execute()
+    # Fetch ALL trusted domains — paginate to bypass Supabase 1000 row default limit
+    all_trusted = []
+    page_size = 1000
+    offset = 0
 
-    all_trusted = response.data or []
+    while True:
+        response = supabase_client.table("source") \
+            .select("domain, trust_score, category, topics") \
+            .gte("trust_score", 70) \
+            .range(offset, offset + page_size - 1) \
+            .execute()
+        
+        batch = response.data or []
+        all_trusted.extend(batch)
+        
+        print(f"[DEBUG] fetched batch offset={offset} size={len(batch)}")
+        
+        if len(batch) < page_size:
+            break  # last page
+        offset += page_size
 
-    # Filter to topic-relevant domains
-    topic_domains = [
-        row for row in all_trusted
-        if not row.get("topics")                          # empty topics = general, always include
-        or topic in (row.get("topics") or [])
-        or "general" in (row.get("topics") or [])
-    ]
+    print(f"[DEBUG] total fetched: {len(all_trusted)}")
+    print(f"[DEBUG] nasa in all_trusted: {any(r['domain'] == 'nasa.gov' for r in all_trusted)}")
+    print(f"[DEBUG] reuters in all_trusted: {any(r['domain'] == 'reuters.com' for r in all_trusted)}")
 
-    # Take top 8 by trust_score for site hints
-    top_domains = sorted(topic_domains, key=lambda x: x["trust_score"], reverse=True)[:8]
-    site_hints = " OR ".join(f"site:{row['domain']}" for row in top_domains)
+    # Exact topic matches first
+    exact_domains = sorted(
+        [row for row in all_trusted if topic in (row.get("topics") or [])],
+        key=lambda x: int(str(x.get("trust_score") or 0)),  # str() first in case it's already int
+        reverse=True
+    )
     
+    print(f"[DEBUG] exact_domains top 5: {[(r['domain'], r['trust_score']) for r in exact_domains[:5]]}")
+
+    # General fallback — only domains explicitly tagged "general", exclude exact matches
+    general_domains = sorted(
+        [
+            row for row in all_trusted
+            if "general" in (row.get("topics") or [])
+            and row["domain"] not in {r["domain"] for r in exact_domains}
+        ],
+        key=lambda x: int(str(x.get("trust_score") or 0)),
+        reverse=True
+    )
+
+    # Science first, general after — take top 8 total
+    combined = (exact_domains + general_domains)[:8]
+
+    # Edge case — nothing at all
+    if not combined:
+        print(f"[CROSSCHECK] no domains found — falling back to all trusted")
+        combined = sorted(
+            all_trusted,
+            key=lambda x: int(str(x.get("trust_score") or 0)),
+            reverse=True
+        )[:8]
+
+    site_hints = " OR ".join(f"site:{row['domain']}" for row in combined)
     if site_hints:
         site_hints = f"({site_hints})"
 
-    print(f"[CROSSCHECK] site hints → {site_hints}")
+    print(
+        f"[CROSSCHECK] exact={len(exact_domains)} '{topic}' domains | "
+        f"general={len(general_domains)} fallback domains | "
+        f"top 8 -> {[r['domain'] for r in combined]}"
+    )
+    print(f"[CROSSCHECK] site hints -> {site_hints}")
 
     # Step 3 — Build Serper query
     keyword_str = " ".join(keywords[:3])  # top 3 keywords keeps query clean
     query = f'"{subject}" {keyword_str} {site_hints}'.strip()
 
-    print(f"[CROSSCHECK] Serper query → {query}")
+    print(f"[CROSSCHECK] Serper query -> {query}")
     
     if not query.strip():
         return {
@@ -187,7 +230,7 @@ async def crosscheck(headline: str, is_text_only: bool = False) -> dict:
             resp = await client.post(
                 SERPER_URL,
                 headers={"X-API-KEY": SERPER_API_KEY, "Content-Type": "application/json"},
-                json={"q": query[:200], "num": 5}
+                json={"q": query[:200], "num": 10}
             )
             resp.raise_for_status()
             
@@ -201,11 +244,18 @@ async def crosscheck(headline: str, is_text_only: bool = False) -> dict:
 
         # Step 5 — Score results using keyword relevance check
         corroborating = []
+        seen_domains = set()  # add this before the loop
+
         for r in raw_results:
             domain = _extract_domain(r.get("link", ""))
             source = source_lookup.get(domain)
 
             if not source or source.get("category") not in CORROBORATING_CATEGORIES:
+                continue
+
+            # Skip if we already counted this domain
+            if domain in seen_domains:
+                print(f"[CROSSCHECK] ⏭ duplicate domain skipped: {domain}")
                 continue
 
             title   = r.get("title", "")
@@ -221,6 +271,7 @@ async def crosscheck(headline: str, is_text_only: bool = False) -> dict:
             if is_contradicted_by_title(headline, title):
                 continue
 
+            seen_domains.add(domain)  # mark domain as counted
             corroborating.append({
                 "name": source.get("name", domain),
                 "domain": domain,
@@ -228,6 +279,80 @@ async def crosscheck(headline: str, is_text_only: bool = False) -> dict:
                 "trust_score": source["trust_score"]
             })
             print(f"[CROSSCHECK] ✅ corroborated by {domain} | matches={matches}")
+        # After first pass
+        MAX_ROUNDS = 4  # max 4 Serper calls = 4 × 10 = 40 results total
+        round_num  = 2
+
+        while len(corroborating) < 5 and round_num <= MAX_ROUNDS:
+            fresh_domains = [
+                r for r in (exact_domains + general_domains)
+                if r["domain"] not in seen_domains
+            ][:12]
+
+            if not fresh_domains:
+                print(f"[CROSSCHECK] no fresh domains left — stopping at round {round_num}")
+                break
+
+            site_hints_next = "(" + " OR ".join(f"site:{r['domain']}" for r in fresh_domains) + ")"
+            query_next = f'"{subject}" {keyword_str} {site_hints_next}'.strip()
+            print(f"[CROSSCHECK] Round {round_num} -> {len(corroborating)}/5 so far | query -> {query_next}")
+
+            try:
+                async with httpx.AsyncClient(timeout=10.0) as client:
+                    resp_next = await client.post(
+                        SERPER_URL,
+                        headers={"X-API-KEY": SERPER_API_KEY, "Content-Type": "application/json"},
+                        json={"q": query_next[:200], "num": 10}
+                    )
+                    resp_next.raise_for_status()
+
+                raw_next = resp_next.json().get("organic", [])
+                print(f"[CROSSCHECK] Round {round_num} returned {len(raw_next)} results")
+
+                found_new = False
+                for r in raw_next:
+                    if len(corroborating) >= 5:
+                        break
+
+                    domain = _extract_domain(r.get("link", ""))
+                    source = source_lookup.get(domain)
+
+                    if not source or source.get("category") not in CORROBORATING_CATEGORIES:
+                        continue
+                    if domain in seen_domains:
+                        continue
+
+                    title      = r.get("title", "")
+                    snippet    = r.get("snippet", "")
+                    searchable = (title + " " + snippet).lower()
+                    matches    = [kw for kw in keywords if kw.lower() in searchable]
+
+                    if not matches and keywords:
+                        continue
+                    if is_contradicted_by_title(headline, title):
+                        continue
+
+                    seen_domains.add(domain)
+                    found_new = True
+                    corroborating.append({
+                        "name": source.get("name", domain),
+                        "domain": domain,
+                        "url": r.get("link", ""),
+                        "trust_score": source["trust_score"]
+                    })
+                    print(f"[CROSSCHECK] ✅ round {round_num} corroborated by {domain} | matches={matches}")
+
+                if not found_new:
+                    print(f"[CROSSCHECK] round {round_num} found no new domains — stopping")
+                    break
+
+            except Exception as e:
+                print(f"[CROSSCHECK] Round {round_num} error: {e}")
+                break
+
+            round_num += 1
+
+        print(f"[CROSSCHECK] final unique corroborating domains: {len(corroborating)}/5")
 
         count = len(corroborating)
         crosscheck_score = _SCORE_MAP.get(min(count, 5), 10)

@@ -23,13 +23,34 @@ Claim: "{claim}"
 
 Instructions:
 - topic: classify into exactly one of: politics, health, science, technology, finance, sports, entertainment, crime, environment, religion, general
-- keywords: 3-5 important words about WHAT the claim is about (not WHO). Exclude the main subject name. Exclude verbs like admit/say/claim.
-- primary_subject: shortest possible name of the main entity (e.g. "Chandrayaan-3" not "Chandrayaan 3 was a indian mission to moon")
+- keywords: 3-6 important words that describe WHAT and WHERE the claim is about.
+  Rules:
+  * INCLUDE nationality/country words (Indian, American, Chinese, Russian etc.)
+  * INCLUDE location words (moon, south pole, Mars, ocean etc.)
+  * INCLUDE action/result words (landing, launch, crash, discover, win etc.)
+  * EXCLUDE the primary subject's own name
+  * EXCLUDE generic verbs like admit, say, claim, announce, confirm
+- primary_subject: shortest possible name of the main entity
+  * "Chandrayaan-3" not "Chandrayaan 3 was an Indian mission"
+  * "Bill Gates" not "Bill Gates admitted something"
+  * "PM Modi" not "Prime Minister Narendra Modi said"
 
-Return ONLY raw JSON. No markdown. No explanation. Example output:
-{{"topic": "science", "keywords": ["lunar", "landing", "mission", "moon"], "primary_subject": "Chandrayaan-3"}}
+Examples:
 
-Now analyze: "{claim}" """
+Claim: "Chandrayaan-3 successfully landed on Moon's south pole"
+Output: {{"topic": "science", "keywords": ["Indian", "lunar", "landing", "moon", "south", "pole"], "primary_subject": "Chandrayaan-3"}}
+
+Claim: "Bill Gates admitted COVID-19 vaccines contain microchips to track citizens"
+Output: {{"topic": "health", "keywords": ["vaccine", "microchip", "covid", "tracking", "citizens"], "primary_subject": "Bill Gates"}}
+
+Claim: "Virat Kohli becomes the highest run scorer in IPL history"
+Output: {{"topic": "sports", "keywords": ["cricket", "IPL", "run", "scorer", "record"], "primary_subject": "Virat Kohli"}}
+
+Claim: "NASA discovered water ice on Mars surface"
+Output: {{"topic": "science", "keywords": ["water", "ice", "Mars", "surface", "discovery"], "primary_subject": "NASA"}}
+
+Now analyze this claim and return ONLY raw JSON, no markdown, no explanation:
+"{claim}" """
 
     try:
         async with httpx.AsyncClient(timeout=6.0) as client:
