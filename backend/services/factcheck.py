@@ -34,7 +34,7 @@ def compute_fact_score(claim: str) -> dict:
     """
     from services.fever_index import compute_fever_score
     from services.google_factcheck import compute_factcheck_score
-    from services.wikidata_lookup import compute_wikidata_score
+    from services.wikidata_lookup import verify_entities
 
     # Define sub-signal weights
     weights = {"fever": 0.40, "gfactcheck": 0.35, "wikidata": 0.25}
@@ -43,7 +43,7 @@ def compute_fact_score(claim: str) -> dict:
     # inside run_in_executor from the async analyze route)
     fever_result = _safe_call("FEVER", compute_fever_score, claim)
     gfactcheck_result = _safe_call("Google Fact Check", compute_factcheck_score, claim)
-    wikidata_result = _safe_call("Wikidata", compute_wikidata_score, claim)
+    wikidata_result = _safe_call("Wikidata", verify_entities, claim)
 
     # Collect scores and handle partial failures
     scores = {}

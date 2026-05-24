@@ -64,9 +64,43 @@ def _get_dynamic_site_hints() -> str:
     return _dynamic_site_hints
 
 
+def _extract_query_keywords(text: str) -> list[str]:
+    """
+    Use spaCy NER + POS to extract the most meaningful search terms.
+    Prioritizes named entities, falls back to proper nouns.
+    Returns at most 6 terms.
+    """
+    nlp = _get_nlp()
+    doc = nlp(text)
+
+    # Named entities first — most specific
+    keywords = [
+        ent.text for ent in doc.ents
+        if ent.label_ in ("ORG", "GPE", "EVENT", "PERSON", "PRODUCT", "DATE", "LOC", "NORP")
+    ]
+
+    # Fallback to proper nouns if NER found nothing
+    if not keywords:
+        keywords = [
+            token.text for token in doc
+            if token.pos_ == "PROPN" and not token.is_stop and len(token.text) > 2
+        ]
+
+    # Deduplicate while preserving order
+    seen = set()
+    unique = []
+    for k in keywords:
+        if k.lower() not in seen:
+            seen.add(k.lower())
+            unique.append(k)
+
+    return unique[:6]
+
+
 def _build_search_query(headline: str, is_text_only: bool = False) -> str:
     """
     Build an optimised search query using spaCy NER.
+    Always anchor the search with the primary subject in quotes.
     """
     headline = headline.strip()
     site_hints = _get_dynamic_site_hints()
@@ -74,28 +108,157 @@ def _build_search_query(headline: str, is_text_only: bool = False) -> str:
     if not is_text_only and len(headline) <= 120 and not headline.endswith("."):
         return headline[:120] + site_hints
     
-    # Text mode — extract key entities instead of sending full sentence
+    keywords = _extract_query_keywords(headline)
+    
+    # Always put the primary subject first and quoted
+    # Primary subject = first ORG/PRODUCT/EVENT/GPE/PERSON/FAC entity found
     nlp = _get_nlp()
     doc = nlp(headline)
+    primary_subject = next(
+        (ent.text for ent in doc.ents 
+         if ent.label_ in ("ORG", "PRODUCT", "EVENT", "GPE", "PERSON", "FAC")),
+        None
+    )
+
+    if not primary_subject:
+        # Fallback — use first proper noun
+        primary_subject = next(
+            (t.text for t in doc if t.pos_ == "PROPN"), 
+            headline[:50]
+        )
+
+    # Only the subject — quoted — plus site hints
+    # Never include the predicate/modifier (the potentially false part)
+    query = f'"{primary_subject}" {site_hints}'
+    print(f"[SERPER QUERY] is_text_only={is_text_only} | query={query}")
+    return query
+
+# ─── Contradiction Detection ──────────────────────────────────────────────────
+
+def extract_topic_keywords(claim: str) -> list[str]:
+    """
+    Extract non-entity content words that define what the claim is ABOUT.
+    These are the words that should appear in a truly corroborating article.
+    Filters out stopwords and the primary subject itself.
+    """
+    nlp = _get_nlp()
+    doc = nlp(claim)
     
-    # Extract named entities
-    entities = [
-        ent.text for ent in doc.ents
-        if ent.label_ in ("ORG", "GPE", "EVENT", "PERSON", "PRODUCT", "DATE", "LOC", "FAC")
+    # Get entity texts to exclude (primary subject words)
+    entity_words = {token.lower() for ent in doc.ents for token in ent.text.lower().split()}
+    
+    # Keep meaningful non-entity words — nouns, verbs, adjectives
+    topic_words = [
+        token.lemma_.lower() for token in doc
+        if not token.is_stop
+        and not token.is_punct
+        and token.pos_ in ("NOUN", "VERB", "ADJ")
+        and token.lower_ not in entity_words
+        and len(token.text) > 3
     ]
     
-    # Extract proper nouns and important nouns that weren't caught by NER
-    pos_keywords = [
-        token.text for token in doc
-        if token.pos_ in ("PROPN", "NOUN") and not token.is_stop 
-        and not any(token.text in e for e in entities)
+    print(f"[CROSSCHECK] Topic keywords: {topic_words}")
+    return topic_words
+
+
+def is_topically_relevant(claim: str, article_title: str, article_snippet: str = "") -> bool:
+    """
+    Check if an article is actually about the claim's topic,
+    not just about the primary subject in a different context.
+    
+    Requires at least 1 topic keyword to appear in title or snippet.
+    """
+    topic_keywords = extract_topic_keywords(claim)
+    
+    if not topic_keywords:
+        return True  # can't determine — give benefit of doubt
+    
+    searchable_text = (article_title + " " + article_snippet).lower()
+    
+    matches = [kw for kw in topic_keywords if kw in searchable_text]
+    
+    print(
+        f"[CROSSCHECK] Relevance check: matches={matches} | "
+        f"title='{article_title[:60]}'"
+    )
+    
+    # At least 1 topic keyword must appear
+    return len(matches) > 0
+
+
+def extract_named_entities_from_text(text: str) -> list[str]:
+    nlp = _get_nlp()
+    doc = nlp(text)
+    return [
+        ent.text.lower().strip()
+        for ent in doc.ents
+        if ent.label_ in ("ORG", "GPE", "NORP", "LOC", "PERSON", "PRODUCT", "EVENT")
     ]
+
+
+def is_same_nationality(ent1: str, ent2: str) -> bool:
+    """
+    Check if two geographic entities are related 
+    (city within a country, demonym of same country etc.)
+    Uses simple substring matching on common cases.
+    spaCy doesn't resolve this, so we check if one contains the other's root.
+    """
+    nlp = _get_nlp()
+    doc1 = nlp(ent1)
+    doc2 = nlp(ent2)
     
-    # Combine entities first, then proper/common nouns
-    keywords = entities + pos_keywords
+    labels1 = {t.ent_type_ for t in doc1}
+    labels2 = {t.ent_type_ for t in doc2}
     
-    keyword_query = " ".join(keywords[:6])  # cap at 6 terms
-    return f"{keyword_query}{site_hints}"
+    # If one is a NORP (nationality adjective like "Japanese") and 
+    # the other is a GPE (place), they might refer to the same country.
+    # Only flag contradiction if BOTH are countries/nationalities,
+    # not if one is a city.
+    if "GPE" in labels1 and "NORP" in labels2:
+        return True   # likely same country expressed differently
+    if "NORP" in labels1 and "GPE" in labels2:
+        return True
+
+    return False
+
+
+def is_contradicted_by_title(claim: str, article_title: str) -> bool:
+    nlp = _get_nlp()
+    claim_doc = nlp(claim)
+    title_doc = nlp(article_title)
+
+    claim_by_label = {}
+    for ent in claim_doc.ents:
+        if ent.label_ in ("GPE", "NORP", "ORG", "PERSON", "LOC"):
+            claim_by_label.setdefault(ent.label_, []).append(ent.text.lower())
+
+    title_by_label = {}
+    for ent in title_doc.ents:
+        if ent.label_ in ("GPE", "NORP", "ORG", "PERSON", "LOC"):
+            title_by_label.setdefault(ent.label_, []).append(ent.text.lower())
+
+    nationality_labels = {"NORP", "GPE"}
+    claim_nationality = [
+        e for label in nationality_labels
+        for e in claim_by_label.get(label, [])
+    ]
+    title_nationality = [
+        e for label in nationality_labels
+        for e in title_by_label.get(label, [])
+    ]
+
+    if claim_nationality and title_nationality:
+        for c_nat in claim_nationality:
+            for t_nat in title_nationality:
+                if c_nat not in t_nat and t_nat not in c_nat:
+                    if not is_same_nationality(c_nat, t_nat):
+                        print(
+                            f"[CROSSCHECK] ⚠️ CONTRADICTION DETECTED: "
+                            f"claim says '{c_nat}' but title mentions '{t_nat}' | title='{article_title}'"
+                        )
+                        return True
+
+    return False
 
 
 def _extract_domain(url: str) -> str:
@@ -235,6 +398,22 @@ def crosscheck(headline: str, is_text_only: bool = False) -> dict:
                 continue
 
             if category in CORROBORATING_CATEGORIES:
+                # Check if this reliable article's title contradicts the claim
+                title = r.get("title", "")
+                snippet = r.get("snippet", "")
+                
+                # Check topical relevance BEFORE counting as corroboration
+                if not is_topically_relevant(headline, title, snippet):
+                    print(
+                        f"[CROSSCHECK] ❌ skipped {domain} — article not about this claim | "
+                        f"title='{title[:60]}'"
+                    )
+                    continue
+                    
+                if is_contradicted_by_title(headline, title):
+                    print(f"[CROSSCHECK] ⚠️ skipped {domain} — title contradicts claim | title='{title}'")
+                    continue
+
                 corroborating.append({
                     "name": r.get("title", domain),
                     "domain": domain,
