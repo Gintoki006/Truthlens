@@ -5,7 +5,7 @@ import { NextResponse } from 'next/server';
  * Middleware: checks Supabase session on every request.
  * Redirects unauthenticated users away from protected routes (/history).
  */
-export async function middleware(request) {
+export async function proxy(request) {
   let supabaseResponse = NextResponse.next({ request });
 
   const supabase = createServerClient(

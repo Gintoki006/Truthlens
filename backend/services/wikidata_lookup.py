@@ -134,12 +134,12 @@ def _search_wikidata_entity(entity_name: str) -> Optional[dict]:
         return None
 
 
-def _get_entity_properties(entity_id: str) -> list[dict]:
+def _get_entity_properties(entity_id: str) -> Optional[list[dict]]:
     """
     Fetch key properties of a Wikidata entity via SPARQL.
 
     Returns a list of property-value pairs relevant for fact verification
-    (instance of, country, operated by, located in, etc.)
+    (instance of, country, operated by, located in, etc.), or None on error.
     """
     # Key properties for fact verification
     # P31 = instance of, P17 = country, P137 = operator, P131 = located in,
@@ -187,7 +187,7 @@ def _get_entity_properties(entity_id: str) -> list[dict]:
 
     except Exception as e:
         logger.error(f"Wikidata SPARQL error for entity {entity_id}: {e}")
-        return []
+        return None
 
 
 def _fuzzy_match(text1: str, text2: str) -> float:
@@ -293,6 +293,16 @@ def verify_entity_claim(entity_name: str, claim_text: str) -> dict:
 
     # Step 2: Get entity properties
     properties = _get_entity_properties(entity_id)
+
+    if properties is None:
+        return {
+            "found": True,
+            "entity_id": entity_id,
+            "description": description,
+            "confirmed": False,
+            "properties": [],
+            "score": 50,  # neutral on SPARQL timeout or error
+        }
 
     # Step 3: Check claim against properties
     result = _check_claim_against_properties(

@@ -38,7 +38,7 @@ _STOP_WORDS = {
 }
 
 
-def _build_search_query(headline: str) -> str:
+def _build_search_query(headline: str, is_text_only: bool = False) -> str:
     """
     Build an optimised search query from a headline or claim.
 
@@ -49,7 +49,8 @@ def _build_search_query(headline: str) -> str:
     headline = headline.strip()
 
     # If it looks like a real headline (short, no period at end), use as-is
-    if len(headline) <= 100 and not headline.endswith("."):
+    # But if we know it's a text snippet, ALWAYS do keyword extraction
+    if not is_text_only and len(headline) <= 100 and not headline.endswith("."):
         return headline[:120]
 
     # Extract meaningful keywords for sentence-style claims
@@ -111,12 +112,13 @@ def _lookup_sources_batch(domains: list[str]) -> dict:
     return lookup
 
 
-def crosscheck(headline: str) -> dict:
+def crosscheck(headline: str, is_text_only: bool = False) -> dict:
     """
     Cross-verify an article headline via Serper (Google Search).
 
     Args:
         headline: The article headline or primary claim (will be truncated to 120 chars).
+        is_text_only: Whether the input is a plain text snippet rather than a URL.
 
     Returns:
         dict with keys:
@@ -136,7 +138,7 @@ def crosscheck(headline: str) -> dict:
         }
 
     # Build an optimized search query (extracts keywords for sentence-style claims)
-    query = _build_search_query(headline) if headline else ""
+    query = _build_search_query(headline, is_text_only) if headline else ""
     if not query.strip():
         return {
             "crosscheck_score": 10,

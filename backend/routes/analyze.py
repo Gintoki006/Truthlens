@@ -51,8 +51,9 @@ class AnalyzeResponse(BaseModel):
     explanation: str
     confidence_warning: str | None = None
     sentences: list[dict] = []
-    source_info: dict = {}
-    nlp_details: dict = {}
+    override_applied: bool | None = None
+    score_override_reason: str | None = None
+    groups: dict = {}
 
 
 @router.post("/analyze", response_model=AnalyzeResponse)
@@ -118,7 +119,7 @@ async def analyze(request: AnalyzeRequest):
     nlp_future = loop.run_in_executor(executor, compute_nlp_score, article_body)
     source_future = loop.run_in_executor(executor, compute_source_score, source_domain, authors)
     ml_future = loop.run_in_executor(executor, compute_ml_score, article_body)
-    crosscheck_future = loop.run_in_executor(executor, crosscheck, article_title or article_body[:120])
+    crosscheck_future = loop.run_in_executor(executor, crosscheck, article_title or article_body[:120], input_type == "text")
     factcheck_future = loop.run_in_executor(executor, compute_fact_score, article_body[:500])
 
     nlp_result, source_result, ml_result, crosscheck_result, factcheck_result = await asyncio.gather(
@@ -132,8 +133,11 @@ async def analyze(request: AnalyzeRequest):
         nlp_score=nlp_result["score"],
         source_score=source_result["score"],
         ml_score=ml_result["score"],
+        ml_roberta_score=ml_result["roberta_score"],
+        ml_lr_score=ml_result["lr_score"],
         crosscheck_score=crosscheck_result["crosscheck_score"],
-        fact_score=factcheck_result["score"],
+        crosscheck_sources=crosscheck_result["corroborating_sources"],
+        factcheck_result=factcheck_result,
         article_age_hours=article_age_hours,
         serper_results_count=crosscheck_result["results_found"],
         input_type=input_type,
@@ -201,6 +205,9 @@ async def analyze(request: AnalyzeRequest):
             },
             "article_age_hours": article_age_hours,
             "verdict": final["verdict"],
+            "score_override": final["score"] if final.get("override_applied") else None,
+            "score_override_reason": final.get("score_override_reason"),
+            "text_only_formula": final.get("text_only_formula", False),
             "explanation": explanation,
             "sentences": sentences,
         }
@@ -244,6 +251,9 @@ async def analyze(request: AnalyzeRequest):
         formula_used=final.get("formula_used"),
         article_age_hours=article_age_hours,
         verdict=final["verdict"],
+        override_applied=final.get("override_applied"),
+        score_override_reason=final.get("score_override_reason"),
+        groups=final.get("groups", {}),
         explanation=explanation,
         confidence_warning=nlp_result.get("confidence_warning"),
         sentences=sentences,

@@ -136,3 +136,11 @@ ALTER TABLE analysis ADD COLUMN IF NOT EXISTS score_fever INT;
 ALTER TABLE analysis ADD COLUMN IF NOT EXISTS score_gfactcheck INT;
 ALTER TABLE analysis ADD COLUMN IF NOT EXISTS score_wikidata INT;
 ALTER TABLE analysis ADD COLUMN IF NOT EXISTS factcheck_details JSONB;
+
+-- ============================================================================
+-- Migration: Add 3-Group Architecture overrides to analysis table (Phase 11)
+-- ============================================================================
+
+ALTER TABLE analysis ADD COLUMN IF NOT EXISTS score_override INT;
+ALTER TABLE analysis ADD COLUMN IF NOT EXISTS score_override_reason TEXT;
+ALTER TABLE analysis ADD COLUMN IF NOT EXISTS text_only_formula BOOLEAN;

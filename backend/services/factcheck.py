@@ -91,9 +91,9 @@ def compute_fact_score(claim: str) -> dict:
 
     return {
         "score": composite_score,
-        "score_fever": scores.get("fever", 0),
-        "score_gfactcheck": scores.get("gfactcheck", 0),
-        "score_wikidata": scores.get("wikidata", 0),
+        "score_fever": scores.get("fever", 50),
+        "score_gfactcheck": scores.get("gfactcheck", 50),
+        "score_wikidata": scores.get("wikidata", 50),
         "fever_details": fever_result or {},
         "gfactcheck_details": gfactcheck_result or {},
         "wikidata_details": wikidata_result or {},

@@ -25,87 +25,162 @@ def compute_final_score(
     nlp_score: int,
     source_score: int,
     ml_score: int,
+    ml_roberta_score: int,
+    ml_lr_score: int,
     crosscheck_score: int | None = None,
-    fact_score: int | None = None,
+    crosscheck_sources: list = None,
+    factcheck_result: dict = None,
     article_age_hours: int | None = None,
     serper_results_count: int = 0,
     input_type: str = "url",
     source_domain: str | None = None,
 ) -> dict:
     """
-    Fuse signal scores into a final authenticity score and verdict.
+    Fuse signal scores into a final authenticity score and verdict based on PRD v1.5.
 
     Selects the appropriate formula based on input type and signal availability:
-      1. Text-only formula: when no source domain is available (e.g. pasted text)
-      2. Serper fallback formula: when crosscheck data is unavailable or
-         article is too new for corroboration
-      3. Standard 5-signal formula: when all signals are available
+      1. Standard formula (URL input, all signals)
+      2. Text-only formula (no source domain)
+      3. Serper fallback formula (article < 6 hours old and 0 crosscheck results)
 
     Returns:
-        dict with keys: score, verdict, crosscheck_fallback, formula_used
+        dict with keys: score, verdict, override_applied, score_override_reason, groups...
     """
-    fact = fact_score if fact_score is not None else 50  # neutral default
+    if factcheck_result is None:
+        factcheck_result = {}
 
-    # ── Formula selection ───────────────────────────────────────────────
+    # ── 1. Calculate Group Scores ───────────────────────────────────────
+    content_score = round((nlp_score * 0.40) + (ml_score * 0.60))
+    source_score_group = round((source_score * 0.50) + ((crosscheck_score or 0) * 0.50))
+    facts_score = factcheck_result.get("score", 50)
+
+    # ── 2. Formula Selection & Fusion ───────────────────────────────────
     use_fallback = False
-
     if crosscheck_score is None:
         use_fallback = True
     elif serper_results_count == 0 and article_age_hours is not None and article_age_hours < 6:
         use_fallback = True
 
+    formula_used = "standard"
+    text_only_formula = False
+
     if input_type == "text" or not source_domain:
+        text_only_formula = True
         if use_fallback:
             # Text-only without crosscheck
-            score = round(
-                nlp_score * 0.30
-                + ml_score * 0.45
-                + fact * 0.25
-            )
+            final_score = round((content_score * 0.50) + (facts_score * 0.50))
             formula_used = "text_only_fallback"
         else:
-            # Text-only formula — remove source credibility (neutral 50 adds noise), redistribute weights
-            score = round(
-                nlp_score * 0.20
-                + ml_score * 0.35
-                + (crosscheck_score or 0) * 0.25
-                + fact * 0.20
+            final_score = round(
+                (content_score * 0.40)
+                + ((crosscheck_score or 0) * 0.20)
+                + (facts_score * 0.40)
             )
             formula_used = "text_only"
     elif use_fallback:
-        # Serper fallback — drop crosscheck, redistribute to remaining 4 signals
-        score = round(
-            nlp_score * 0.23
-            + source_score * 0.29
-            + ml_score * 0.23
-            + fact * 0.25
-        )
+        final_score = round((content_score * 0.50) + (facts_score * 0.50))
         formula_used = "serper_fallback"
     else:
-        # Standard 5-signal fusion
-        score = round(
-            nlp_score * 0.20
-            + source_score * 0.25
-            + ml_score * 0.20
-            + (crosscheck_score or 0) * 0.15
-            + fact * 0.20
+        final_score = round(
+            (content_score * 0.35)
+            + (source_score_group * 0.30)
+            + (facts_score * 0.35)
         )
-        formula_used = "standard"
 
-    score = max(0, min(100, score))
+    # ── 3. Override Rules ───────────────────────────────────────────────
+    override_applied = None
+    score_override_reason = None
 
-    if score >= 70:
+    gfact_details = factcheck_result.get("gfactcheck_details", {})
+    gfact_verdict = gfact_details.get("verdict") or ""
+    gfact_similarity = gfact_details.get("similarity", 0.0)
+
+    from services.google_factcheck import TRUTH_RATINGS, FALSE_RATINGS
+
+    is_truth = any(k in gfact_verdict.lower() for k in TRUTH_RATINGS.keys())
+    is_false = any(k in gfact_verdict.lower() for k in FALSE_RATINGS.keys())
+
+    if is_truth and gfact_similarity >= 0.80:
+        if final_score < 75:
+            final_score = 75
+            override_applied = True
+            score_override_reason = "Fact check verified this claim"
+    elif is_false and gfact_similarity >= 0.80:
+        if final_score > 35:
+            final_score = 35
+            override_applied = True
+            score_override_reason = "Fact check debunked this claim"
+
+    # Wikidata overrides
+    wikidata_details = factcheck_result.get("wikidata_details", {})
+    wd_score = wikidata_details.get("score", 50)
+    
+    if wd_score >= 90:
+        final_score = min(final_score + 10, 100)
+        override_applied = True
+        score_override_reason = "Wikidata confirms entity predicates (+10)"
+    elif wd_score <= 20:
+        final_score = max(final_score - 15, 0)
+        override_applied = True
+        score_override_reason = "Wikidata contradicts entity predicates (-15)"
+
+    final_score = max(0, min(100, final_score))
+
+    # ── Verdict Mapping ─────────────────────────────────────────────────
+    if final_score >= 70:
         verdict = "real"
-    elif score >= 40:
+    elif final_score >= 40:
         verdict = "suspicious"
     else:
         verdict = "fake"
 
     return {
-        "score": score,
+        "score": final_score,
         "verdict": verdict,
+        "override_applied": override_applied,
+        "score_override_reason": score_override_reason,
         "crosscheck_fallback": use_fallback,
+        "text_only_formula": text_only_formula,
         "formula_used": formula_used,
+        "groups": {
+            "content": {
+                "score": content_score,
+                "weight": 0.40 if text_only_formula else (0.50 if use_fallback else 0.35),
+                "sub_signals": {
+                    "nlp": nlp_score,
+                    "roberta": ml_roberta_score,
+                    "lr_model": ml_lr_score,
+                    "ml_ensemble": ml_score
+                }
+            },
+            "source": {
+                "score": source_score_group,
+                "weight": 0.0 if use_fallback else (0.20 if text_only_formula else 0.30),
+                "sub_signals": {
+                    "domain_trust": source_score,
+                    "crosscheck": crosscheck_score or 0
+                },
+                "corroborating_sources": crosscheck_sources or [],
+                "fallback_applied": use_fallback,
+                "text_only": text_only_formula
+            },
+            "facts": {
+                "score": facts_score,
+                "weight": 0.40 if text_only_formula else (0.50 if use_fallback else 0.35),
+                "sub_signals": {
+                    "factcheck": factcheck_result.get("score_gfactcheck", 50),
+                    "wikidata": factcheck_result.get("score_wikidata", 50),
+                    "fever": factcheck_result.get("score_fever", 50)
+                },
+                "factcheck_result": {
+                    "rating": gfact_verdict if gfact_verdict else None,
+                    "checker": gfact_details.get("source"),
+                    "url": gfact_details.get("review_url"),
+                    "similarity": gfact_similarity
+                },
+                "wikidata_status": "confirmed" if wd_score >= 90 else ("contradicted" if wd_score <= 20 else "unverified")
+            }
+        }
     }
 
 

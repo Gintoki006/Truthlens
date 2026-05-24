@@ -10,7 +10,11 @@ import SignalBar from "@/components/ui/SignalBar";
 import SentenceHighlight from "@/components/ui/SentenceHighlight";
 import CrosscheckPanel from "@/components/ui/CrosscheckPanel";
 import FallbackBadge from "@/components/ui/FallbackBadge";
-import FactCheckPanel from "@/components/ui/FactCheckPanel";
+import GroupScoreBar from "@/components/ui/GroupScoreBar";
+import OverrideBadge from "@/components/ui/OverrideBadge";
+import FactCheckBadge from "@/components/ui/FactCheckBadge";
+import WikidataBadge from "@/components/ui/WikidataBadge";
+import TextOnlyBadge from "@/components/ui/TextOnlyBadge";
 
 export default function ResultsPage() {
   const params = useParams();
@@ -203,6 +207,10 @@ export default function ResultsPage() {
         <aside className="w-full md:w-[280px] border-b md:border-b-0 md:border-r border-[var(--border-color)] p-4 md:p-6 space-y-5 md:space-y-6">
           <div className="space-y-3">
             <VerdictBadge verdict={analysis.verdict} size="lg" />
+            {analysis.override_applied && (
+              <OverrideBadge reason={analysis.score_override_reason} />
+            )}
+            {analysis.text_only_formula && <TextOnlyBadge />}
             {analysis.crosscheck_fallback && <FallbackBadge />}
             {communityDisagrees && (
               <span className="block text-xs text-[#BA7517] font-medium bg-[#FAEEDA] px-2 py-1 rounded" style={{ fontFamily: "'Work Sans', sans-serif" }}>
@@ -211,30 +219,50 @@ export default function ResultsPage() {
             )}
           </div>
 
-          {/* Signal scores */}
-          <div className="space-y-3">
-            <h3 className="text-xs font-semibold uppercase tracking-wider text-[var(--text-secondary)]" style={{ fontFamily: "'Work Sans', sans-serif" }}>
-              Signal Scores
-            </h3>
-            <SignalBar label="NLP Analysis" score={analysis.score_nlp || 0} />
-            <SignalBar label="Source Trust" score={analysis.score_source || 0} />
-            <SignalBar label="ML Ensemble" score={analysis.score_ml || 0} />
-            {analysis.score_crosscheck != null && (
-              <SignalBar label="Cross-Check" score={analysis.score_crosscheck} />
-            )}
-            {analysis.score_factcheck != null && (
-              <SignalBar label="Fact Check" score={analysis.score_factcheck} />
-            )}
-          </div>
+          {/* Signal Groups */}
+          {analysis.groups && (
+            <div className="space-y-3 pt-4 border-t border-[var(--border-color)]">
+              <h3 className="text-xs font-semibold uppercase tracking-wider text-[var(--text-secondary)]" style={{ fontFamily: "'Work Sans', sans-serif" }}>
+                Signal Groups
+              </h3>
+              
+              {analysis.groups.content && (
+                <GroupScoreBar 
+                  groupKey="content" 
+                  label="Content Intelligence" 
+                  score={analysis.groups.content.score} 
+                  subSignals={analysis.groups.content.sub_signals} 
+                />
+              )}
+              
+              {analysis.groups.source && (
+                <GroupScoreBar 
+                  groupKey="source" 
+                  label="Source & Corroboration" 
+                  score={analysis.groups.source.score} 
+                  subSignals={analysis.groups.source.sub_signals} 
+                />
+              )}
+              
+              {analysis.groups.facts && (
+                <GroupScoreBar 
+                  groupKey="facts" 
+                  label="Fact Verification" 
+                  score={analysis.groups.facts.score} 
+                  subSignals={analysis.groups.facts.sub_signals} 
+                />
+              )}
+            </div>
+          )}
 
-          {/* Individual ML model scores */}
-          <div className="space-y-3 pt-4 border-t border-[var(--border-color)]">
-            <h3 className="text-xs font-semibold uppercase tracking-wider text-[var(--text-secondary)]" style={{ fontFamily: "'Work Sans', sans-serif" }}>
-              ML Model Breakdown
-            </h3>
-            <SignalBar label="RoBERTa" score={analysis.score_roberta || 0} />
-            <SignalBar label="LR Model" score={analysis.score_lr || 0} />
-          </div>
+          {/* Fact Check and Wikidata Badges */}
+          {analysis.groups?.facts?.factcheck_result?.rating && (
+            <FactCheckBadge result={analysis.groups.facts.factcheck_result} />
+          )}
+          
+          {analysis.groups?.facts?.wikidata_status && (
+            <WikidataBadge status={analysis.groups.facts.wikidata_status} />
+          )}
 
           {/* Cross-verification panel */}
           <div className="pt-4 border-t border-[var(--border-color)] space-y-2">
@@ -244,25 +272,8 @@ export default function ResultsPage() {
             <CrosscheckPanel
               sources={analysis.crosscheck_sources || []}
               fallback={analysis.crosscheck_fallback}
-              score={analysis.score_crosscheck}
             />
           </div>
-
-          {/* Fact verification panel */}
-          {analysis.score_factcheck != null && (
-            <div className="pt-4 border-t border-[var(--border-color)] space-y-2">
-              <h3 className="text-xs font-semibold uppercase tracking-wider text-[var(--text-secondary)]" style={{ fontFamily: "'Work Sans', sans-serif" }}>
-                Fact Verification
-              </h3>
-              <FactCheckPanel
-                score={analysis.score_factcheck}
-                scoreFever={analysis.score_fever}
-                scoreGfactcheck={analysis.score_gfactcheck}
-                scoreWikidata={analysis.score_wikidata}
-                details={analysis.factcheck_details}
-              />
-            </div>
-          )}
 
           {/* Source info */}
           {analysis.source_domain && (
