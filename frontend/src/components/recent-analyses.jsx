@@ -91,9 +91,23 @@ export function RecentAnalysesStrip() {
     async function fetchRecent() {
       try {
         const supabase = getSupabaseBrowserClient();
+        
+        // 1. Check if user is logged in
+        const { data: { user } } = await supabase.auth.getUser();
+        
+        if (!user) {
+          // If not logged in, show placeholders instead of live feed data
+          setAnalyses(placeholderAnalyses);
+          setUsingPlaceholder(true);
+          setLoading(false);
+          return;
+        }
+
+        // 2. Fetch only THIS user's analyses
         const { data, error } = await supabase
           .from('analysis')
           .select('id, article_title, source_domain, verdict, score_final, created_at')
+          .eq('user_id', user.id)
           .order('created_at', { ascending: false })
           .limit(6);
 

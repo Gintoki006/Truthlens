@@ -25,7 +25,7 @@ export function AboutSection() {
               TruthLens is an AI-driven investigative system that instantly analyzes any article and returns a clear authenticity score, a definitive verdict, and a human-readable explanation.
             </p>
             
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-8 text-left pt-8 border-t-[0.5px] border-slate-300 dark:border-stone-700">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-8 gap-y-12 text-left pt-8 border-t-[0.5px] border-slate-300 dark:border-stone-700">
               <div>
                 <h4 className="font-label-caps text-xs tracking-widest text-slate-500 dark:text-stone-400 uppercase mb-2">Signal 1</h4>
                 <p className="font-headline-sm text-sm text-slate-900 dark:text-stone-100">NLP & Semantic Analysis</p>
@@ -37,6 +37,18 @@ export function AboutSection() {
               <div>
                 <h4 className="font-label-caps text-xs tracking-widest text-slate-500 dark:text-stone-400 uppercase mb-2">Signal 3</h4>
                 <p className="font-headline-sm text-sm text-slate-900 dark:text-stone-100">Machine Learning Classification</p>
+              </div>
+              <div>
+                <h4 className="font-label-caps text-xs tracking-widest text-slate-500 dark:text-stone-400 uppercase mb-2">Signal 4</h4>
+                <p className="font-headline-sm text-sm text-slate-900 dark:text-stone-100">Cross-Verification Engine</p>
+              </div>
+              <div>
+                <h4 className="font-label-caps text-xs tracking-widest text-slate-500 dark:text-stone-400 uppercase mb-2">Signal 5</h4>
+                <p className="font-headline-sm text-sm text-slate-900 dark:text-stone-100">Global Fact-Check Registries</p>
+              </div>
+              <div>
+                <h4 className="font-label-caps text-xs tracking-widest text-slate-500 dark:text-stone-400 uppercase mb-2">Signal 6</h4>
+                <p className="font-headline-sm text-sm text-slate-900 dark:text-stone-100">Semantic AI Logic Engine</p>
               </div>
             </div>
           </div>

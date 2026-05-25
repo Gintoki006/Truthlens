@@ -106,7 +106,10 @@ export default function ArchiveView() {
             </h1>
             <div className="flex items-center gap-2 pb-2">
               <span className="font-label text-[9px] uppercase tracking-[0.2em] font-bold text-[#747878] dark:text-stone-400">REGISTRY STATUS:</span>
-              <span className="bg-[#b7211f] text-white font-label text-[9px] font-bold uppercase tracking-[0.2em] px-2 py-1">IMPECCABLE</span>
+              <span className="bg-[#1c1b1b] dark:bg-stone-100 text-white dark:text-stone-900 font-label text-[9px] font-bold uppercase tracking-[0.2em] px-2 py-1 flex items-center gap-1.5">
+                <span className="w-1.5 h-1.5 rounded-full bg-[#00c853] animate-pulse"></span>
+                SYNCHRONIZED
+              </span>
             </div>
           </div>
           <p className="font-serif italic text-xl md:text-2xl text-[#444748] dark:text-stone-300 max-w-4xl">

@@ -209,7 +209,7 @@ export default function ResultsPage() {
         roberta: analysis.score_roberta || 0,
         lr_model: analysis.score_lr || 0,
         ml_ensemble: analysis.score_ml || 0,
-        ...(analysis.factcheck_details?.score_groq_news !== undefined ? { groq_analysis: analysis.factcheck_details.score_groq_news } : {})
+        ...(analysis.factcheck_details?.score_groq_news !== undefined ? { semantic_analysis: analysis.factcheck_details.score_groq_news } : {})
       }
     },
     source: {
@@ -228,7 +228,7 @@ export default function ResultsPage() {
         factcheck: analysis.score_gfactcheck || 50,
         wikidata: analysis.score_wikidata || 50,
         fever: analysis.score_fever || 50,
-        ...(analysis.factcheck_details?.score_groq_fact !== undefined ? { groq_logic: analysis.factcheck_details.score_groq_fact } : {})
+        ...(analysis.factcheck_details?.score_groq_fact !== undefined ? { semantic_logic: analysis.factcheck_details.score_groq_fact } : {})
       },
       factcheck_result: {
         rating: analysis.factcheck_details?.gfactcheck?.verdict || null,

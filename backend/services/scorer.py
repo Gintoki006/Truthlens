@@ -145,14 +145,14 @@ def compute_final_score(
         if final_score > 35:
             final_score = min(final_score, 35)
             override_applied = True
-            score_override_reason = "Groq News Check: Matches known misinformation/conspiracy pattern"
+            score_override_reason = "Semantic Analysis: Matches known misinformation/conspiracy pattern"
             logger.info(f"[SCORER] Groq News override — capped at 35 (score={gn_score})")
 
     elif not gn_misinfo and gn_plausibility == "high" and gn_score >= 80:
         if final_score < 75:
             final_score = max(final_score, 75)
             override_applied = True
-            score_override_reason = "Groq News Check: Highly credible and factual"
+            score_override_reason = "Semantic Analysis: Highly credible and factual"
             logger.info(f"[SCORER] Groq News override — floored at 75 (score={gn_score})")
 
     # Groq Fact Check overrides
@@ -166,7 +166,7 @@ def compute_final_score(
             if final_score > 35:
                 final_score = min(final_score, 35)
                 override_applied = True
-                score_override_reason = "Groq fact check: claim is false with high confidence"
+                score_override_reason = "AI Logic Check: claim is false with high confidence"
                 logger.info(f"[SCORER] Groq override — capped at 35 (groq_score={groq_score})")
 
         elif groq_score >= 80:
@@ -174,7 +174,7 @@ def compute_final_score(
             if final_score < 75:
                 final_score = max(final_score, 75)
                 override_applied = True
-                score_override_reason = "Groq fact check: claim is verified true with high confidence"
+                score_override_reason = "AI Logic Check: claim is verified true with high confidence"
                 logger.info(f"[SCORER] Groq override — floored at 75 (groq_score={groq_score})")
 
     # Wikidata overrides
