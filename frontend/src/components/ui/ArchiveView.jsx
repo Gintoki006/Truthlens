@@ -25,6 +25,12 @@ export default function ArchiveView() {
   const [loading, setLoading] = useState(true);
   const [verdictFilter, setVerdictFilter] = useState('ALL');
   const [timeFilter, setTimeFilter] = useState('ALL_TIME');
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 4;
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [verdictFilter, timeFilter]);
 
   useEffect(() => {
     async function fetchHistory() {
@@ -81,6 +87,12 @@ export default function ArchiveView() {
     
     return true;
   });
+
+  const totalPages = Math.ceil(filteredHistory.length / itemsPerPage);
+  const currentItems = filteredHistory.slice(
+    (currentPage - 1) * itemsPerPage,
+    currentPage * itemsPerPage
+  );
 
   return (
     <div className="flex-1 overflow-y-auto bg-[#f8f7f5] dark:bg-background w-full h-full px-6 py-12 md:px-12">
@@ -159,14 +171,14 @@ export default function ArchiveView() {
                 <h3 className="font-serif text-2xl text-primary">No records found matching filters.</h3>
               </div>
             ) : (
-              <motion.div 
-                variants={containerVariants}
-                initial="hidden"
-                animate="show"
-                className="flex flex-col border-b-[2px] border-[#1c1b1b] dark:border-stone-100"
-              >
-                {filteredHistory.map((item, idx) => {
-                  const issueNum = String(filteredHistory.length - idx).padStart(3, '0');
+                <motion.div 
+                  variants={containerVariants}
+                  initial="hidden"
+                  animate="show"
+                  className="flex flex-col border-b-[2px] border-[#1c1b1b] dark:border-stone-100"
+                >
+                {currentItems.map((item, idx) => {
+                  const issueNum = String(filteredHistory.length - ((currentPage - 1) * itemsPerPage) - idx).padStart(3, '0');
                   const dateStr = new Date(item.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }).toUpperCase();
                   
                   return (
@@ -231,7 +243,31 @@ export default function ArchiveView() {
                     </motion.div>
                   );
                 })}
-              </motion.div>
+                
+                {/* Pagination Controls */}
+                {totalPages > 1 && (
+                  <div className="flex justify-between items-center py-6 px-4 bg-[#f8f7f5] dark:bg-background">
+                    <button 
+                      onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                      disabled={currentPage === 1}
+                      className={`font-label text-[10px] font-bold uppercase tracking-[0.2em] px-4 py-2 flex items-center transition-colors border border-[#1c1b1b] dark:border-stone-100 ${currentPage === 1 ? 'opacity-50 cursor-not-allowed text-[#747878]' : 'text-[#1c1b1b] dark:text-stone-100 hover:bg-[#1c1b1b] hover:text-white dark:hover:bg-stone-100 dark:hover:text-stone-900'}`}
+                    >
+                      <span className="material-symbols-outlined text-[14px] mr-2">west</span> PREV
+                    </button>
+                    <span className="font-label text-[10px] font-bold tracking-[0.2em] text-[#747878] dark:text-stone-400">
+                      PAGE {currentPage} OF {totalPages}
+                    </span>
+                    <button 
+                      onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                      disabled={currentPage === totalPages}
+                      className={`font-label text-[10px] font-bold uppercase tracking-[0.2em] px-4 py-2 flex items-center transition-colors border border-[#1c1b1b] dark:border-stone-100 ${currentPage === totalPages ? 'opacity-50 cursor-not-allowed text-[#747878]' : 'text-[#1c1b1b] dark:text-stone-100 hover:bg-[#1c1b1b] hover:text-white dark:hover:bg-stone-100 dark:hover:text-stone-900'}`}
+                    >
+                      NEXT <span className="material-symbols-outlined text-[14px] ml-2">east</span>
+                    </button>
+                  </div>
+                )}
+
+                </motion.div>
             )}
           </div>
 

@@ -21,6 +21,12 @@ export default function LiveFeedView() {
   const [feedItems, setFeedItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [categoryFilter, setCategoryFilter] = useState('ALL');
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 4;
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [categoryFilter]);
 
   const fetchFeed = async () => {
     setLoading(true);
@@ -58,6 +64,12 @@ export default function LiveFeedView() {
 
   // Get top 3 for the "Latest Alerts" sidebar
   const latestAlerts = feedItems.slice(0, 3);
+
+  const totalPages = Math.ceil(feedItems.length / itemsPerPage);
+  const currentItems = feedItems.slice(
+    (currentPage - 1) * itemsPerPage,
+    currentPage * itemsPerPage
+  );
 
   return (
     <div className="flex-1 overflow-y-auto bg-[#f8f7f5] dark:bg-background w-full h-full px-6 py-12 md:px-12">
@@ -124,14 +136,14 @@ export default function LiveFeedView() {
                 <h3 className="font-serif text-2xl text-primary">No live broadcasts found for this sector.</h3>
               </div>
             ) : (
-              <motion.div 
-                variants={containerVariants}
-                initial="hidden"
-                animate="show"
-                className="flex flex-col border-b-[2px] border-[#1c1b1b] dark:border-stone-100"
-              >
-                {feedItems.map((item, idx) => {
-                  const issueNum = String(feedItems.length - idx).padStart(3, '0');
+                <motion.div 
+                  variants={containerVariants}
+                  initial="hidden"
+                  animate="show"
+                  className="flex flex-col border-b-[2px] border-[#1c1b1b] dark:border-stone-100"
+                >
+                {currentItems.map((item, idx) => {
+                  const issueNum = String(feedItems.length - ((currentPage - 1) * itemsPerPage) - idx).padStart(3, '0');
                   const dateStr = item.published_at 
                     ? new Date(item.published_at).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }).toUpperCase()
                     : new Date(item.analyzed_at).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }).toUpperCase();
@@ -198,7 +210,31 @@ export default function LiveFeedView() {
                     </motion.div>
                   );
                 })}
-              </motion.div>
+                
+                {/* Pagination Controls */}
+                {totalPages > 1 && (
+                  <div className="flex justify-between items-center py-6 px-4 bg-[#f8f7f5] dark:bg-background">
+                    <button 
+                      onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                      disabled={currentPage === 1}
+                      className={`font-label text-[10px] font-bold uppercase tracking-[0.2em] px-4 py-2 flex items-center transition-colors border border-[#1c1b1b] dark:border-stone-100 ${currentPage === 1 ? 'opacity-50 cursor-not-allowed text-[#747878]' : 'text-[#1c1b1b] dark:text-stone-100 hover:bg-[#1c1b1b] hover:text-white dark:hover:bg-stone-100 dark:hover:text-stone-900'}`}
+                    >
+                      <span className="material-symbols-outlined text-[14px] mr-2">west</span> PREV
+                    </button>
+                    <span className="font-label text-[10px] font-bold tracking-[0.2em] text-[#747878] dark:text-stone-400">
+                      PAGE {currentPage} OF {totalPages}
+                    </span>
+                    <button 
+                      onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                      disabled={currentPage === totalPages}
+                      className={`font-label text-[10px] font-bold uppercase tracking-[0.2em] px-4 py-2 flex items-center transition-colors border border-[#1c1b1b] dark:border-stone-100 ${currentPage === totalPages ? 'opacity-50 cursor-not-allowed text-[#747878]' : 'text-[#1c1b1b] dark:text-stone-100 hover:bg-[#1c1b1b] hover:text-white dark:hover:bg-stone-100 dark:hover:text-stone-900'}`}
+                    >
+                      NEXT <span className="material-symbols-outlined text-[14px] ml-2">east</span>
+                    </button>
+                  </div>
+                )}
+
+                </motion.div>
             )}
           </div>
 
