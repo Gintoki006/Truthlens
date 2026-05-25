@@ -1,9 +1,10 @@
 """
-Signal 5A — FEVER dataset semantic search (weight: 40% within Signal 5).
+Signal 5A — FEVER dataset semantic search via Supabase pgvector.
 
-Loads the FEVER (Fact Extraction and VERification) dataset at server startup,
-builds a semantic search index using sentence-transformers embeddings, and
-provides a lookup function to find the most similar pre-labeled claims.
+Instead of loading 311k embeddings into RAM locally, we:
+  1. Encode only the single query using sentence-transformers (~80MB RAM).
+  2. Call the `match_fever_claims` RPC function in Supabase which performs
+     a fast cosine similarity search via the HNSW index.
 
 Scoring:
   cosine ≥ 0.85 + SUPPORTS  → 90–95
@@ -12,148 +13,116 @@ Scoring:
 """
 
 import os
-import pickle
 import logging
-from pathlib import Path
-
-import numpy as np
+from functools import lru_cache
 
 logger = logging.getLogger(__name__)
 
-# Paths for caching pre-computed embeddings to disk
-_CACHE_DIR = Path(__file__).parent.parent / "data" / "fever_cache"
-_EMBEDDINGS_CACHE = _CACHE_DIR / "fever_embeddings.npy"
-_CLAIMS_CACHE = _CACHE_DIR / "fever_claims.pkl"
-_LABELS_CACHE = _CACHE_DIR / "fever_labels.pkl"
-
-# Module-level state — loaded once at startup
-_model = None
-_claims = None
-_labels = None
-_embeddings = None
-_loaded = False
-
-# FEVER label mapping (dataset uses numeric labels)
-_LABEL_MAP = {0: "SUPPORTS", 1: "REFUTES", 2: "NOT ENOUGH INFO"}
+# ── Sentence-transformer model (query encoder only — ~80MB RAM) ────────────
+_encoder_model = None
 
 
-def _load_model():
-    """Load the sentence-transformers model (lightweight, ~80MB)."""
-    global _model
-    if _model is None:
+def _get_encoder():
+    """Lazy-load the sentence-transformers encoder (only the query encoder)."""
+    global _encoder_model
+    if _encoder_model is None:
+        logger.info("[FEVER] Loading sentence-transformers encoder (all-MiniLM-L6-v2)…")
         from sentence_transformers import SentenceTransformer
+        _encoder_model = SentenceTransformer("all-MiniLM-L6-v2")
+        logger.info("[FEVER] Encoder loaded (384-dim, ~80MB RAM). No local index required.")
+    return _encoder_model
 
-        _model = SentenceTransformer("all-MiniLM-L6-v2")
-        logger.info("FEVER: sentence-transformers model loaded (all-MiniLM-L6-v2)")
-    return _model
 
+# ── Supabase client ────────────────────────────────────────────────────────
+_supabase_client = None
+
+
+def _get_supabase():
+    """Lazy-load the Supabase client."""
+    global _supabase_client
+    if _supabase_client is None:
+        from supabase import create_client
+        url = os.getenv("SUPABASE_URL")
+        key = os.getenv("SUPABASE_SERVICE_KEY")
+        if not url or not key:
+            raise RuntimeError(
+                "[FEVER] SUPABASE_URL or SUPABASE_SERVICE_KEY not set in environment."
+            )
+        _supabase_client = create_client(url, key)
+        logger.info("[FEVER] Supabase client initialised for pgvector queries.")
+    return _supabase_client
+
+
+# ── Public API ─────────────────────────────────────────────────────────────
 
 def load_fever_index():
     """
-    Load or build the FEVER semantic search index.
-
-    On first run: downloads FEVER from HuggingFace, computes embeddings,
-    and caches everything to disk. On subsequent runs: loads from cache.
+    No-op — kept for backwards compatibility with startup call in main.py.
+    The index lives in Supabase; nothing needs to be loaded locally.
     """
-    global _claims, _labels, _embeddings, _loaded
-
-    if _loaded:
-        return
-
-    model = _load_model()
-
-    # Try loading from cache first
-    if _EMBEDDINGS_CACHE.exists() and _CLAIMS_CACHE.exists() and _LABELS_CACHE.exists():
-        logger.info("FEVER: Loading index from disk cache...")
-        _embeddings = np.load(str(_EMBEDDINGS_CACHE))
-        with open(str(_CLAIMS_CACHE), "rb") as f:
-            _claims = pickle.load(f)
-        with open(str(_LABELS_CACHE), "rb") as f:
-            _labels = pickle.load(f)
-        _loaded = True
-        logger.info(f"FEVER: Loaded {len(_claims)} claims from cache")
-        return
-
-    # Build index from HuggingFace dataset
-    logger.info("FEVER: Downloading dataset from HuggingFace (first run, this takes a few minutes)...")
-    try:
-        from datasets import load_dataset
-
-        dataset = load_dataset("fever/fever", "v1.0", split="train", trust_remote_code=True)
-
-        _claims = dataset["claim"]
-        # Map numeric labels to string labels
-        _labels = [_LABEL_MAP.get(label, "NOT ENOUGH INFO") for label in dataset["label"]]
-
-        logger.info(f"FEVER: Encoding {len(_claims)} claims (this may take several minutes on first run)...")
-        _embeddings = model.encode(
-            _claims,
-            show_progress_bar=True,
-            batch_size=256,
-            convert_to_numpy=True,
-            normalize_embeddings=True,  # Pre-normalize for fast cosine similarity via dot product
-        )
-
-        # Cache to disk
-        _CACHE_DIR.mkdir(parents=True, exist_ok=True)
-        np.save(str(_EMBEDDINGS_CACHE), _embeddings)
-        with open(str(_CLAIMS_CACHE), "wb") as f:
-            pickle.dump(_claims, f)
-        with open(str(_LABELS_CACHE), "wb") as f:
-            pickle.dump(_labels, f)
-
-        _loaded = True
-        logger.info(f"FEVER: Index built and cached ({len(_claims)} claims, {_embeddings.shape} embeddings)")
-
-    except Exception as e:
-        logger.error(f"FEVER: Failed to load dataset: {e}")
-        # Set empty state so the service doesn't crash — will return neutral scores
-        _claims = []
-        _labels = []
-        _embeddings = np.array([])
-        _loaded = True
+    logger.info(
+        "[FEVER] Supabase pgvector mode — no local index to load. "
+        "Queries will be served via match_fever_claims() RPC."
+    )
 
 
 def search_fever(query: str, top_k: int = 5) -> list[dict]:
     """
-    Find the top-k most similar claims in the FEVER dataset.
+    Find the top-k most similar claims in the Supabase FEVER index.
 
     Args:
-        query: The input claim to search for.
+        query: The input claim/text to search for.
         top_k: Number of results to return.
 
     Returns:
         list of dicts with keys: claim, label, similarity
     """
-    if not _loaded:
-        load_fever_index()
-
-    if _embeddings is None or len(_embeddings) == 0 or not query.strip():
+    if not query.strip():
         return []
 
-    model = _load_model()
+    try:
+        # Step 1: Encode the query locally (fast — single short text)
+        encoder = _get_encoder()
+        query_embedding = encoder.encode(
+            [query],
+            convert_to_numpy=True,
+            normalize_embeddings=True,
+        )
+        embedding_list = query_embedding[0].tolist()  # list[float] for JSON
 
-    # Encode query (normalized for cosine sim via dot product)
-    query_embedding = model.encode(
-        [query],
-        convert_to_numpy=True,
-        normalize_embeddings=True,
-    )
+        # Step 2: Query Supabase via RPC
+        supabase = _get_supabase()
+        response = supabase.rpc(
+            "match_fever_claims",
+            {
+                "query_embedding": embedding_list,
+                "match_threshold":  0.50,
+                "match_count":      top_k,
+            },
+        ).execute()
 
-    # Compute cosine similarities (dot product since embeddings are normalized)
-    similarities = np.dot(_embeddings, query_embedding.T).flatten()
+        if not response.data:
+            logger.debug(f"[FEVER] No matches found for query: '{query[:80]}'")
+            return []
 
-    # Get top-k indices
-    top_indices = np.argsort(similarities)[-top_k:][::-1]
+        results = [
+            {
+                "claim":      row["claim"],
+                "label":      row["label"],
+                "similarity": float(row["similarity"]),
+            }
+            for row in response.data
+        ]
 
-    return [
-        {
-            "claim": _claims[i],
-            "label": _labels[i],
-            "similarity": float(similarities[i]),
-        }
-        for i in top_indices
-    ]
+        logger.debug(
+            f"[FEVER] {len(results)} match(es) returned from Supabase "
+            f"| top similarity={results[0]['similarity']:.4f} | label={results[0]['label']}"
+        )
+        return results
+
+    except Exception as e:
+        logger.error(f"[FEVER] search_fever() error: {e}")
+        return []
 
 
 def compute_fever_score(claim: str) -> dict:
@@ -166,66 +135,62 @@ def compute_fever_score(claim: str) -> dict:
     try:
         matches = search_fever(claim, top_k=3)
     except Exception as e:
-        logger.error(f"FEVER search error: {e}")
-        return {"score": 10, "top_match": None, "matches": [], "error": str(e)}
+        logger.error(f"[FEVER] compute_fever_score() error: {e}")
+        return {"score": 50, "top_match": None, "matches": [], "error": str(e)}
 
     if not matches:
-        print(f"[FEVER] no matches found — score=10")
-        return {"score": 10, "top_match": None, "matches": []}
-
-    print(f"[FEVER] query='{claim}'")
-    for m in matches:
-        print(f"[FEVER] match='{m['claim']}' | label={m['label']} | similarity={m['similarity']:.4f}")
+        logger.info(f"[FEVER] No matches — returning neutral score=50")
+        return {"score": 50, "top_match": None, "matches": []}
 
     top = matches[0]
-    sim = top["similarity"]
+    sim   = top["similarity"]
     label = top["label"]
 
+    logger.info(
+        f"[FEVER] query='{claim[:80]}' | "
+        f"top_match='{top['claim'][:60]}' | "
+        f"label={label} | similarity={sim:.4f}"
+    )
+
+    # ── Scoring logic (unchanged from original) ────────────────────────────
     if sim >= 0.85:
         if label == "SUPPORTS":
-            # High similarity + SUPPORTS → strong positive signal
-            # Scale: 0.85 → 90, 1.0 → 95
             score = min(95, round(90 + (sim - 0.85) * 33))
         elif label == "REFUTES":
-            # High similarity + REFUTES → strong negative signal
-            # Scale: 0.85 → 15, 1.0 → 5
             score = max(5, round(15 - (sim - 0.85) * 67))
         else:
-            # NOT ENOUGH INFO at very high similarity
-            # Claim exists in FEVER but wasn't verified — treat as weakly positive
+            # NOT ENOUGH INFO at high similarity
             if sim >= 0.95:
-                score = 65  # very close match — likely true, just not cited
+                score = 65
             elif sim >= 0.90:
-                score = 60  # close match — lean positive
+                score = 60
             else:
-                score = 55  # moderate match — slight positive lean
+                score = 55
 
     elif sim >= 0.70:
-        # Moderate similarity — partial signal
         if label == "SUPPORTS":
-            score = round(60 + (sim - 0.70) * 200)  # 60–90
+            score = round(60 + (sim - 0.70) * 200)   # 60–90
         elif label == "REFUTES":
-            score = round(40 - (sim - 0.70) * 167)  # 40–15
+            score = round(40 - (sim - 0.70) * 167)   # 40–15
         else:
-            score = 50  # neutral
+            score = 50
 
     else:
-        # Low similarity — penalize heavily
         score = 10
 
-    print(f"[FEVER] final score={score} | sim={sim:.4f} | label={label}")
+    logger.info(f"[FEVER] final score={score} | sim={sim:.4f} | label={label}")
 
     return {
         "score": max(0, min(100, score)),
         "top_match": {
-            "claim": top["claim"],
-            "label": top["label"],
+            "claim":      top["claim"],
+            "label":      top["label"],
             "similarity": round(sim, 4),
         },
         "matches": [
             {
-                "claim": m["claim"],
-                "label": m["label"],
+                "claim":      m["claim"],
+                "label":      m["label"],
                 "similarity": round(m["similarity"], 4),
             }
             for m in matches

@@ -4,6 +4,8 @@ uvicorn[standard]>=0.30.6
 python-multipart>=0.0.9
 
 # ML / NLP
+# RoBERTa: primary = HF Inference API; fallback = local transformers pipeline
+requests>=2.31.0
 transformers>=4.44.0
 torch>=2.6.0
 scikit-learn>=1.5.1
