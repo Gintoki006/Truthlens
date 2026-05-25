@@ -18,6 +18,7 @@ import WikidataBadge from "@/components/ui/WikidataBadge";
 import TextOnlyBadge from "@/components/ui/TextOnlyBadge";
 import DashboardView from "@/components/ui/DashboardView";
 import ArchiveView from "@/components/ui/ArchiveView";
+import LiveFeedView from "@/components/ui/LiveFeedView";
 import AnalyzeForm from "@/components/forms/AnalyzeForm";
 import { motion, AnimatePresence } from "framer-motion";
 
@@ -35,6 +36,7 @@ export default function ResultsPage() {
   const [currentTime, setCurrentTime] = useState("");
   const [activeView, setActiveView] = useState(searchParams.get("view") || "results");
   const [isAnalyzeModalOpen, setIsAnalyzeModalOpen] = useState(false);
+  const [isSidebarExpanded, setIsSidebarExpanded] = useState(true);
 
   useEffect(() => {
     const updateTime = () => {
@@ -283,42 +285,86 @@ export default function ResultsPage() {
           >
             ARCHIVE LEDGER
           </button>
+          <button 
+            onClick={() => setActiveView("live_news")}
+            className={`uppercase tracking-[0.2em] text-[10px] font-label transition-colors pb-1 flex items-center gap-1 ${activeView === "live_news" ? "text-[#b7211f] font-bold border-b-2 border-[#b7211f]" : "text-on-surface-variant dark:text-on-tertiary-container hover:text-[#b7211f]"}`}
+          >
+            <span className="w-1.5 h-1.5 rounded-full bg-[#b7211f] animate-pulse"></span> LIVE NEWS
+          </button>
         </nav>
       </header>
 
       <div className="flex flex-1 overflow-hidden">
         {/* SideNavBar */}
-        <aside className="bg-surface-container-low dark:bg-surface-container text-primary dark:text-on-background docked left-0 border-r-[0.5px] border-outline-variant flat no shadows flex flex-col h-full shrink-0 w-64 overflow-y-auto hidden lg:flex">
-          <div className="p-6 editorial-rule-thin mb-4">
-            <div className="flex flex-col mb-8">
-              <span className="font-display text-2xl font-bold text-primary">TRUTHLENS LEDGER</span>
-              <span className="font-label uppercase tracking-widest text-[10px] text-on-surface-variant mt-1">INVESTIGATIVE UNIT</span>
+        <aside className={`bg-surface-container-low dark:bg-surface-container text-primary dark:text-on-background docked left-0 border-r-[0.5px] border-outline-variant flat no shadows flex flex-col h-full shrink-0 transition-all duration-300 overflow-y-auto hidden lg:flex ${isSidebarExpanded ? 'w-64' : 'w-20'}`}>
+          <div className={`p-4 ${isSidebarExpanded ? 'p-6' : ''} editorial-rule-thin mb-4 flex-1`}>
+            {/* Toggle Button */}
+            <div className={`flex items-center ${isSidebarExpanded ? 'justify-end' : 'justify-center'} mb-6`}>
+              <button 
+                onClick={() => setIsSidebarExpanded(!isSidebarExpanded)}
+                className="text-on-surface-variant hover:text-primary transition-colors p-1"
+                title={isSidebarExpanded ? "Collapse Sidebar" : "Expand Sidebar"}
+              >
+                <span className="material-symbols-outlined text-[18px]">
+                  {isSidebarExpanded ? "keyboard_double_arrow_left" : "keyboard_double_arrow_right"}
+                </span>
+              </button>
             </div>
-            <button onClick={() => setIsAnalyzeModalOpen(true)} className="w-full bg-primary text-on-primary font-label text-[10px] uppercase tracking-[0.1em] py-3 px-4 hover:bg-surface-tint transition-colors mb-8 flex justify-center items-center">
-              <span className="material-symbols-outlined mr-2 text-[14px]">add</span> NEW ANALYSIS
+
+            {isSidebarExpanded && (
+              <div className="flex flex-col mb-8">
+                <span className="font-display text-2xl font-bold text-primary truncate">TRUTHLENS LEDGER</span>
+                <span className="font-label uppercase tracking-widest text-[10px] text-on-surface-variant mt-1">INVESTIGATIVE UNIT</span>
+              </div>
+            )}
+            
+            <button 
+              onClick={() => setIsAnalyzeModalOpen(true)} 
+              className={`w-full bg-primary text-on-primary font-label text-[10px] uppercase tracking-[0.1em] py-3 hover:bg-surface-tint transition-colors mb-8 flex justify-center items-center ${isSidebarExpanded ? 'px-4' : 'px-0'}`}
+              title="New Analysis"
+            >
+              <span className="material-symbols-outlined text-[14px]">{isSidebarExpanded ? 'add' : 'add'}</span> 
+              {isSidebarExpanded && <span className="ml-2">NEW ANALYSIS</span>}
             </button>
             
-            <div className="font-label text-[10px] tracking-[0.2em] uppercase text-on-surface-variant mb-4 px-2">TABLE OF CONTENTS</div>
+            {isSidebarExpanded && <div className="font-label text-[10px] tracking-[0.2em] uppercase text-on-surface-variant mb-4 px-2 truncate">TABLE OF CONTENTS</div>}
+            
             <nav className="flex flex-col space-y-1">
               <button 
                 onClick={() => setActiveView("dashboard")}
-                className={`flex items-center px-4 py-3 font-label uppercase tracking-widest text-[10px] transition-all duration-200 ${
+                title="Dashboard"
+                className={`flex items-center py-3 font-label uppercase tracking-widest text-[10px] transition-all duration-200 ${isSidebarExpanded ? 'px-4' : 'justify-center'} ${
                   activeView === "dashboard" 
                     ? "bg-primary text-on-primary font-bold" 
                     : "text-on-surface-variant dark:text-on-surface hover:bg-surface-container-highest"
                 }`}
               >
-                <span className="material-symbols-outlined mr-4" data-icon="dashboard">dashboard</span> DASHBOARD
+                <span className="material-symbols-outlined" data-icon="dashboard">dashboard</span>
+                {isSidebarExpanded && <span className="ml-4 truncate">DASHBOARD</span>}
               </button>
               <button 
                 onClick={() => setActiveView("results")}
-                className={`flex items-center px-4 py-3 font-label uppercase tracking-widest text-[10px] transition-all duration-200 ${
+                title="This Analysis"
+                className={`flex items-center py-3 font-label uppercase tracking-widest text-[10px] transition-all duration-200 ${isSidebarExpanded ? 'px-4' : 'justify-center'} ${
                   activeView === "results" 
                     ? "bg-primary text-on-primary font-bold" 
                     : "text-on-surface-variant dark:text-on-surface hover:bg-surface-container-highest"
                 }`}
               >
-                <span className="material-symbols-outlined mr-4" data-icon="analytics">analytics</span> THIS ANALYSIS
+                <span className="material-symbols-outlined" data-icon="analytics">analytics</span>
+                {isSidebarExpanded && <span className="ml-4 truncate">THIS ANALYSIS</span>}
+              </button>
+              <button 
+                onClick={() => setActiveView("live_news")}
+                title="Live News"
+                className={`flex items-center py-3 font-label uppercase tracking-widest text-[10px] transition-all duration-200 ${isSidebarExpanded ? 'px-4' : 'justify-center'} ${
+                  activeView === "live_news" 
+                    ? "bg-[#FCEBEB]/50 text-[#b7211f] font-bold border-l-4 border-[#b7211f]" 
+                    : "text-on-surface-variant dark:text-on-surface hover:bg-surface-container-highest"
+                }`}
+              >
+                <span className="material-symbols-outlined text-[#b7211f]" data-icon="cell_tower">cell_tower</span>
+                {isSidebarExpanded && <span className="ml-4 truncate">LIVE NEWS</span>}
               </button>
             </nav>
           </div>
@@ -327,13 +373,15 @@ export default function ResultsPage() {
             <nav className="flex flex-col space-y-1">
               <button 
                 onClick={() => setActiveView("archive")}
-                className={`flex items-center px-4 py-2 font-label uppercase tracking-widest text-[10px] transition-colors w-full text-left ${
+                title="Archive"
+                className={`flex items-center py-2 font-label uppercase tracking-widest text-[10px] transition-colors w-full ${isSidebarExpanded ? 'px-4 text-left' : 'justify-center'} ${
                   activeView === "archive" 
                     ? "bg-surface-container-highest text-primary font-bold" 
                     : "text-on-surface-variant hover:bg-surface-container-highest"
                 }`}
               >
-                <span className="material-symbols-outlined mr-4 text-[16px]" data-icon="archive">archive</span> ARCHIVE
+                <span className="material-symbols-outlined text-[16px]" data-icon="archive">archive</span>
+                {isSidebarExpanded && <span className="ml-4 truncate">ARCHIVE</span>}
               </button>
               {user && (
                 <button 
@@ -341,9 +389,11 @@ export default function ResultsPage() {
                     await signOut();
                     window.location.href = "/";
                   }}
-                  className="flex items-center px-4 py-2 text-on-surface-variant hover:bg-surface-container-highest font-label uppercase tracking-widest text-[10px] transition-colors w-full text-left"
+                  title="Logout"
+                  className={`flex items-center py-2 text-on-surface-variant hover:bg-surface-container-highest font-label uppercase tracking-widest text-[10px] transition-colors w-full ${isSidebarExpanded ? 'px-4 text-left' : 'justify-center'}`}
                 >
-                  <span className="material-symbols-outlined mr-4 text-[16px]" data-icon="logout">logout</span> LOGOUT
+                  <span className="material-symbols-outlined text-[16px]" data-icon="logout">logout</span>
+                  {isSidebarExpanded && <span className="ml-4 truncate">LOGOUT</span>}
                 </button>
               )}
             </nav>
@@ -356,6 +406,8 @@ export default function ResultsPage() {
             <ArchiveView />
           ) : activeView === "dashboard" ? (
             <DashboardView />
+          ) : activeView === "live_news" ? (
+            <LiveFeedView />
           ) : (
             <>
               {/* Verification Sidebar */}

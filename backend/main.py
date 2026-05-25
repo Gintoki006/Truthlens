@@ -27,9 +27,14 @@ async def lifespan(app: FastAPI):
     download_nlp_resources()
     print("[OK] NLP resources ready")
 
+    # Start feed scheduler
+    from scheduler import start_scheduler, shutdown_scheduler
+    start_scheduler()
+
     yield  # App is running
 
     print("[STOP] Shutting down...")
+    shutdown_scheduler()
 
 
 # ── App ─────────────────────────────────────────────────────────────────────
@@ -59,12 +64,14 @@ from routes.history import router as history_router
 from routes.vote import router as vote_router
 from routes.bookmarks import router as bookmarks_router
 from routes.rewrite import router as rewrite_router
+from routes.feed import router as feed_router
 
 app.include_router(analyze_router, prefix="/api")
 app.include_router(history_router, prefix="/api")
 app.include_router(vote_router, prefix="/api")
 app.include_router(bookmarks_router, prefix="/api")
 app.include_router(rewrite_router, prefix="/api")
+app.include_router(feed_router, prefix="/api")
 
 
 @app.get("/")

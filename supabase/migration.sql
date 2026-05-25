@@ -144,3 +144,37 @@ ALTER TABLE analysis ADD COLUMN IF NOT EXISTS factcheck_details JSONB;
 ALTER TABLE analysis ADD COLUMN IF NOT EXISTS score_override INT;
 ALTER TABLE analysis ADD COLUMN IF NOT EXISTS score_override_reason TEXT;
 ALTER TABLE analysis ADD COLUMN IF NOT EXISTS text_only_formula BOOLEAN;
+
+-- ============================================================================
+-- Migration: Add Live Analyzed News Feed table (Phase 12)
+-- ============================================================================
+
+CREATE TABLE IF NOT EXISTS feed_item (
+  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  analysis_id     UUID REFERENCES analysis(id) ON DELETE SET NULL,
+  headline        TEXT NOT NULL,
+  source_name     TEXT,
+  source_domain   TEXT,
+  article_url     TEXT,
+  published_at    TIMESTAMPTZ,
+  category        TEXT,  -- 'politics' | 'health' | 'sports' | 'tech' | 'general'
+  score_final     INT,
+  verdict         TEXT CHECK (verdict IN ('real', 'suspicious', 'fake')),
+  analyzed_at     TIMESTAMPTZ DEFAULT NOW(),
+  is_stale        BOOLEAN DEFAULT FALSE
+);
+
+-- Index for fast feed queries by category and recency
+CREATE INDEX IF NOT EXISTS idx_feed_category_published 
+  ON feed_item (category, published_at DESC);
+
+-- Enable RLS
+ALTER TABLE feed_item ENABLE ROW LEVEL SECURITY;
+
+-- Allow public read of all feed items
+CREATE POLICY "Public read feed_items"
+  ON feed_item FOR SELECT
+  USING (true);
+
+-- Enable Realtime on feed_item table
+ALTER PUBLICATION supabase_realtime ADD TABLE feed_item;
