@@ -27,6 +27,11 @@ async def lifespan(app: FastAPI):
     download_nlp_resources()
     print("[OK] NLP resources ready")
 
+    print("[*] Loading FEVER index...")
+    from services.fever_index import load_fever_index
+    load_fever_index()
+    print("[OK] FEVER index ready")
+
     # Start feed scheduler
     from scheduler import start_scheduler, shutdown_scheduler
     start_scheduler()
