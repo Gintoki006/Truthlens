@@ -113,8 +113,30 @@ body {
 .editorial-rule-hairline {
   border-top: 0.5px solid var(--color-outline);
 }
-.double-rule {
+.editorial-rule-thin {
+  border-top: 0.5px solid var(--color-outline-variant);
+}
+.double-rule, .editorial-rule-double {
   border-top: 4px double var(--color-on-surface);
+}
+.editorial-border-r {
+  border-right: 0.5px solid var(--color-outline-variant);
+}
+
+::-webkit-scrollbar {
+  width: 4px;
+  height: 4px;
+}
+::-webkit-scrollbar-track {
+  background: var(--color-background);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--color-outline-variant);
+}
+
+@keyframes ticker {
+  0% { transform: translateX(100%); }
+  100% { transform: translateX(-100%); }
 }
 
 :root {

@@ -3,9 +3,9 @@ import { useState } from "react"
 import SubSignalRow from "./SubSignalRow"
 
 const GROUP_COLORS = {
-  content: { bg: "bg-[#EEEDFE]", text: "text-[#3C3489]", bar: "bg-[#534AB7]", emoji: "🟣" },
-  source:  { bg: "bg-[#E1F5EE]", text: "text-[#085041]", bar: "bg-[#1D9E75]", emoji: "🟢" },
-  facts:   { bg: "bg-[#FAEEDA]", text: "text-[#633806]", bar: "bg-[#BA7517]", emoji: "🟡" },
+  content: { bg: "bg-[#f3edfc]", dot: "bg-[#7c4dff]", text: "text-[#7c4dff]" },
+  source:  { bg: "bg-[#e6f4ea]", dot: "bg-[#00c853]", text: "text-[#00c853]" },
+  facts:   { bg: "bg-[#fff8e1]", dot: "bg-[#ffc107]", text: "text-[#ffc107]" },
 }
 
 export default function GroupScoreBar({ groupKey, label, score, subSignals }) {
@@ -13,25 +13,25 @@ export default function GroupScoreBar({ groupKey, label, score, subSignals }) {
   const c = GROUP_COLORS[groupKey] || GROUP_COLORS.content
 
   return (
-    <div className={`rounded-lg p-3 mb-2 ${c.bg}`}>
-      <div className="flex items-center justify-between cursor-pointer"
+    <div className={`border-[0.5px] border-outline-variant ${c.bg}`}>
+      <div className="flex items-center justify-between p-3 cursor-pointer select-none"
            onClick={() => setExpanded(!expanded)}>
-        <span className={`text-sm font-medium ${c.text}`}>
-          {c.emoji} {label}
-        </span>
+        <div className="flex items-center">
+          <div className={`w-3 h-3 rounded-full ${c.dot} mr-3`}></div>
+          <span className="font-body text-sm font-medium text-on-surface">{label}</span>
+        </div>
         <div className="flex items-center gap-2">
-          <strong className={`text-sm ${c.text}`}>{score}</strong>
-          <span className={`text-xs ${c.text}`}>{expanded ? "▲" : "▾"}</span>
+          <span className={`font-headline text-lg font-bold ${c.text}`}>{score}</span>
+          <span className={`text-[10px] ${c.text} flex items-center justify-center`}>
+            <span className="material-symbols-outlined text-[16px]">{expanded ? "expand_less" : "expand_more"}</span>
+          </span>
         </div>
       </div>
-      <div className="mt-2 h-1 bg-white/50 rounded-full overflow-hidden">
-        <div className={`h-1 rounded-full ${c.bar} transition-all duration-500`}
-             style={{ width: `${Math.max(0, Math.min(100, score))}%` }} />
-      </div>
       {expanded && subSignals && (
-        <div className="mt-3 space-y-1 border-t border-white/40 pt-2">
+        <div className="px-3 pb-3 space-y-1">
+          <div className="border-t-[0.5px] border-outline-variant mb-2 opacity-30"></div>
           {Object.entries(subSignals).map(([key, val]) => (
-            <SubSignalRow key={key} label={key.replace(/_/g, ' ')} score={val} />
+            <SubSignalRow key={key} label={key.replace(/_/g, ' ')} score={val} colorClass={c.text} />
           ))}
         </div>
       )}

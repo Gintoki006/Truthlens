@@ -142,7 +142,7 @@ export function Header({ forwardRef }) {
       <div className="flex flex-col items-center w-full px-4 py-6 max-w-[1400px] mx-auto">
         <div className="w-full flex flex-col md:flex-row justify-between items-center md:items-end mb-4 gap-2 md:gap-0 font-['Work_Sans'] text-[10px] uppercase tracking-widest font-bold text-slate-600 dark:text-stone-400">
           <div className="flex flex-col md:flex-row items-center gap-1 md:gap-4">
-            <span>VOL. XII — NO. 402</span>
+            <span>TRUTHLENS OS — NO. 402</span>
             <span className="md:border-l md:border-slate-400 md:pl-4">
               {dateline}
             </span>

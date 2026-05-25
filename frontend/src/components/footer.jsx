@@ -84,10 +84,10 @@ export function Footer() {
           </div>
         </div>
         <div className="border-t-[0.5px] border-slate-400 pt-8 text-center">
-          <p className="font-serif font-['Newsreader'] text-xs leading-relaxed uppercase tracking-widest text-slate-500">
-            © 2024 TRUTHLENS INVESTIGATIVE JOURNALISM. VOL. XII — NO. 402. ALL
+          <div className="font-['Work_Sans'] text-[10px] font-bold uppercase tracking-widest text-slate-500 dark:text-stone-500 mb-6 md:mb-0">
+            © 2024 TRUTHLENS INVESTIGATIVE SYSTEMS. BUILD 402. ALL
             RIGHTS RESERVED.
-          </p>
+          </div>
         </div>
       </div>
     </footer>
