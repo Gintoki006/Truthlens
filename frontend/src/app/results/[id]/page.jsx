@@ -581,13 +581,34 @@ export default function ResultsPage() {
                     </div>
 
                     {analysis.crosscheck_sources && analysis.crosscheck_sources.length > 0 ? (
-                      <div className="space-y-0">
-                        {analysis.crosscheck_sources.map((s, i) => (
-                          <a key={i} href={s.url} target="_blank" rel="noopener noreferrer" className="flex items-center justify-between border-b-[1.5px] border-[#d4d4d4] dark:border-stone-700 py-3 group hover:bg-[#1c1b1b]/5 dark:hover:bg-stone-800 transition-all px-2 -mx-2">
-                            <span className="font-serif text-[13px] uppercase font-bold text-[#1c1b1b] dark:text-stone-100 group-hover:text-primary transition-colors">{s.name || s.domain}</span>
-                            <span className="material-symbols-outlined text-[14px] text-[#1c1b1b] dark:text-stone-100 opacity-0 group-hover:opacity-100 -translate-x-1 translate-y-1 group-hover:translate-x-0 group-hover:translate-y-0 transition-all duration-300">arrow_outward</span>
-                          </a>
-                        ))}
+                      <div className="space-y-6">
+                        {/* DEBUNKING SOURCES */}
+                        {analysis.crosscheck_sources.some(s => s.stance === "debunks") && (
+                          <div className="space-y-0">
+                            <span className="block font-label text-[9px] uppercase tracking-[0.2em] font-black text-[#b7211f] mb-1">DEBUNKING SOURCES</span>
+                            {analysis.crosscheck_sources.filter(s => s.stance === "debunks").map((s, i) => (
+                              <a key={i} href={s.url} target="_blank" rel="noopener noreferrer" className="flex items-center justify-between border-b-[1.5px] border-[#b7211f]/30 py-3 group hover:bg-[#b7211f]/5 transition-all px-2 -mx-2">
+                                <span className="font-serif text-[13px] uppercase font-bold text-[#b7211f] group-hover:text-[#9a1b19] transition-colors">{s.name || s.domain}</span>
+                                <span className="material-symbols-outlined text-[14px] text-[#b7211f] opacity-0 group-hover:opacity-100 -translate-x-1 translate-y-1 group-hover:translate-x-0 group-hover:translate-y-0 transition-all duration-300">arrow_outward</span>
+                              </a>
+                            ))}
+                          </div>
+                        )}
+
+                        {/* CORROBORATING SOURCES */}
+                        {analysis.crosscheck_sources.some(s => s.stance !== "debunks") && (
+                          <div className="space-y-0">
+                            {analysis.crosscheck_sources.some(s => s.stance === "debunks") && (
+                               <span className="block font-label text-[9px] uppercase tracking-[0.2em] font-black text-[#1c1b1b] dark:text-stone-100 mb-1 mt-4">CORROBORATING SOURCES</span>
+                            )}
+                            {analysis.crosscheck_sources.filter(s => s.stance !== "debunks").map((s, i) => (
+                              <a key={i} href={s.url} target="_blank" rel="noopener noreferrer" className="flex items-center justify-between border-b-[1.5px] border-[#d4d4d4] dark:border-stone-700 py-3 group hover:bg-[#1c1b1b]/5 dark:hover:bg-stone-800 transition-all px-2 -mx-2">
+                                <span className="font-serif text-[13px] uppercase font-bold text-[#1c1b1b] dark:text-stone-100 group-hover:text-primary transition-colors">{s.name || s.domain}</span>
+                                <span className="material-symbols-outlined text-[14px] text-[#1c1b1b] dark:text-stone-100 opacity-0 group-hover:opacity-100 -translate-x-1 translate-y-1 group-hover:translate-x-0 group-hover:translate-y-0 transition-all duration-300">arrow_outward</span>
+                              </a>
+                            ))}
+                          </div>
+                        )}
                       </div>
                     ) : (
                       <div className="border-[1.5px] border-[#1c1b1b] dark:border-stone-100 p-4 bg-white dark:bg-stone-900 shadow-[2px_2px_0px_#1c1b1b]">
