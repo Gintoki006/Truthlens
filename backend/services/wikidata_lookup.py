@@ -8,8 +8,8 @@ from functools import lru_cache
 
 logger = logging.getLogger(__name__)
 
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-GEMINI_URL = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={GEMINI_API_KEY}"
+GROQ_API_KEY = os.getenv("GROQ_API_KEY")
+GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
 
 WIKIDATA_SPARQL = "https://query.wikidata.org/sparql"
 
@@ -31,37 +31,33 @@ WIKIDATA_PROPERTIES = [
     "wd:P577",  # publication date
 ]
 
-def _call_gemini_json(prompt: str) -> dict:
-    if not GEMINI_API_KEY or GEMINI_API_KEY == "your-gemini-key":
-        logger.warning("[WIKIDATA] Gemini API Key not set.")
+def _call_groq_json(prompt: str) -> dict:
+    if not GROQ_API_KEY:
+        logger.warning("[WIKIDATA] Groq API Key not set.")
         return {}
 
     try:
         with httpx.Client(timeout=10.0) as client:
             resp = client.post(
-                GEMINI_URL,
+                GROQ_URL,
+                headers={
+                    "Authorization": f"Bearer {GROQ_API_KEY}",
+                    "Content-Type": "application/json"
+                },
                 json={
-                    "contents": [{"parts": [{"text": prompt}]}],
-                    "generationConfig": {
-                        "temperature": 0,
-                        "maxOutputTokens": 1024,
-                        "responseMimeType": "application/json"
-                    }
+                    "model": "llama-3.3-70b-versatile",
+                    "messages": [{"role": "user", "content": prompt}],
+                    "temperature": 0,
+                    "max_tokens": 1024,
+                    "response_format": {"type": "json_object"}
                 }
             )
             resp.raise_for_status()
             
-            raw = resp.json()["candidates"][0]["content"]["parts"][0]["text"].strip()
-            
-            match = re.search(r'\{.*\}', raw, re.DOTALL)
-            if match:
-                raw = match.group(0)
-            else:
-                raw = raw.replace("```json", "").replace("```", "").strip()
-                
+            raw = resp.json()["choices"][0]["message"]["content"].strip()
             return json.loads(raw)
     except Exception as e:
-        logger.warning(f"[WIKIDATA] Gemini call failed: {e}")
+        logger.warning(f"[WIKIDATA] Groq call failed: {e}")
         return {}
 
 def get_primary_subject(claim: str) -> str:
@@ -77,7 +73,7 @@ Return ONLY raw JSON in this format:
   "primary_subject": "Name"
 }}"""
     
-    result = _call_gemini_json(prompt)
+    result = _call_groq_json(prompt)
     return result.get("primary_subject", "")
 
 def evaluate_facts(claim: str, facts: dict) -> dict:
@@ -95,9 +91,9 @@ Return ONLY raw JSON in this format:
   "reason": "Brief explanation of what the facts say and how they relate to the claim."
 }}"""
 
-    result = _call_gemini_json(prompt)
+    result = _call_groq_json(prompt)
     if not result:
-        return {"status": "neutral", "reason": "Failed to evaluate facts using Gemini"}
+        return {"status": "neutral", "reason": "Failed to evaluate facts using Groq"}
     
     status = result.get("status", "neutral")
     if status not in ("confirmed", "contradicted", "mixed", "neutral"):

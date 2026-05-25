@@ -30,29 +30,34 @@ def compute_final_score(
     crosscheck_score: int | None = None,
     crosscheck_sources: list = None,
     factcheck_result: dict = None,
+    groq_news_result: dict = None,
+    groq_fact_result: dict = None,
     article_age_hours: int | None = None,
     serper_results_count: int = 0,
     input_type: str = "url",
     source_domain: str | None = None,
 ) -> dict:
-    """
-    Fuse signal scores into a final authenticity score and verdict based on PRD v1.5.
+    if factcheck_result is None: factcheck_result = {}
+    if groq_news_result is None: groq_news_result = {}
+    if groq_fact_result is None: groq_fact_result = {}
 
-    Selects the appropriate formula based on input type and signal availability:
-      1. Standard formula (URL input, all signals)
-      2. Text-only formula (no source domain)
-      3. Serper fallback formula (article < 6 hours old and 0 crosscheck results)
-
-    Returns:
-        dict with keys: score, verdict, override_applied, score_override_reason, groups...
-    """
-    if factcheck_result is None:
-        factcheck_result = {}
-
-    # ── 1. Calculate Group Scores (Default URL mode) ────────────────────
-    content_score = round((nlp_score * 0.40) + (ml_score * 0.60))
+    groq_news_score = groq_news_result.get("score", 50)
+    groq_fact_score = groq_fact_result.get("score", 50)
+    
+    # ── 1. Calculate Group Scores ───────────────────────────────────────
+    content_score = round((nlp_score * 0.25) + (ml_score * 0.45) + (groq_news_score * 0.30))
     source_score_group = round((source_score * 0.50) + ((crosscheck_score or 0) * 0.50))
-    facts_score = factcheck_result.get("score", 50)
+    
+    # Strict Fact Checking weights (no graceful degradation)
+    gfactcheck_score = factcheck_result.get("score_gfactcheck", 10)
+    wikidata_score = factcheck_result.get("score_wikidata", 10)
+    fever_score = factcheck_result.get("score_fever", 10)
+    facts_score = round(
+        (groq_fact_score * 0.50) +
+        (gfactcheck_score * 0.20) +
+        (wikidata_score * 0.20) +
+        (fever_score * 0.10)
+    )
 
     # ── 2. Formula Selection & Fusion ───────────────────────────────────
     formula_used = "standard"
@@ -61,33 +66,16 @@ def compute_final_score(
     if (input_type == "text" or not source_domain):
         text_only_formula = True
         if crosscheck_score is None:
-            # Text-only without crosscheck
-            final_score = round((nlp_score * 0.30) + (ml_score * 0.40) + (facts_score * 0.30))
+            final_score = round((content_score * 0.50) + (facts_score * 0.50))
             formula_used = "text_only_fallback"
         else:
-            final_score = round(
-                (nlp_score * 0.20)
-                + (ml_score * 0.35)
-                + (crosscheck_score * 0.25)
-                + (facts_score * 0.20)
-            )
+            final_score = round((content_score * 0.45) + (crosscheck_score * 0.25) + (facts_score * 0.30))
             formula_used = "text_only"
     elif serper_results_count == 0 and article_age_hours is not None and article_age_hours < 6:
-        final_score = round(
-            (nlp_score * 0.23)
-            + (source_score * 0.29)
-            + (ml_score * 0.23)
-            + (facts_score * 0.25)
-        )
+        final_score = round((content_score * 0.50) + (facts_score * 0.50))
         formula_used = "serper_fallback"
     else:
-        final_score = round(
-            (nlp_score * 0.20)
-            + (source_score * 0.25)
-            + (ml_score * 0.20)
-            + ((crosscheck_score or 0) * 0.15)
-            + (facts_score * 0.20)
-        )
+        final_score = round((content_score * 0.40) + (source_score_group * 0.35) + (facts_score * 0.25))
         formula_used = "standard"
 
     use_fallback = "fallback" in formula_used
@@ -117,8 +105,7 @@ def compute_final_score(
             score_override_reason = "Fact check debunked this claim"
 
     # Wikidata overrides
-    wikidata_details = factcheck_result.get("wikidata_details", {})
-    wd_score = wikidata_details.get("score", 50)
+    wd_score = wikidata_score
     
     if wd_score >= 90:
         final_score = min(final_score + 10, 100)
@@ -139,9 +126,8 @@ def compute_final_score(
     else:
         verdict = "fake"
 
-    # Adjust Group Scores for Text-Only Mode
+    # Adjust Group Scores for UI in Text-Only Mode
     if text_only_formula:
-        content_score = round((nlp_score * (0.20 / 0.55)) + (ml_score * (0.35 / 0.55)))
         source_score_group = crosscheck_score or 0
 
     return {
@@ -160,7 +146,8 @@ def compute_final_score(
                     "nlp": nlp_score,
                     "roberta": ml_roberta_score,
                     "lr_model": ml_lr_score,
-                    "ml_ensemble": ml_score
+                    "ml_ensemble": ml_score,
+                    "groq_analysis": groq_news_score
                 }
             },
             "source": {
@@ -182,7 +169,8 @@ def compute_final_score(
                 "sub_signals": {
                     "factcheck": factcheck_result.get("score_gfactcheck", 50),
                     "wikidata": factcheck_result.get("score_wikidata", 50),
-                    "fever": factcheck_result.get("score_fever", 50)
+                    "fever": factcheck_result.get("score_fever", 50),
+                    "groq_logic": groq_fact_score
                 },
                 "factcheck_result": {
                     "rating": gfact_verdict if gfact_verdict else None,

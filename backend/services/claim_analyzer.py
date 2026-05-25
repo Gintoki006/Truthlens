@@ -8,8 +8,8 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-GEMINI_URL = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={GEMINI_API_KEY}"
+GROQ_API_KEY = os.getenv("GROQ_API_KEY")
+GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
 
 TOPIC_CATEGORIES = [
     "politics", "health", "science", "technology", "finance",
@@ -53,31 +53,27 @@ Now analyze this claim and return ONLY raw JSON, no markdown, no explanation:
 "{claim}" """
 
     try:
-        async with httpx.AsyncClient(timeout=6.0) as client:
+        async with httpx.AsyncClient(timeout=8.0) as client:
             resp = await client.post(
-                GEMINI_URL,
+                GROQ_URL,
+                headers={
+                    "Authorization": f"Bearer {GROQ_API_KEY}",
+                    "Content-Type": "application/json"
+                },
                 json={
-                    "contents": [{"parts": [{"text": prompt}]}],
-                    "generationConfig": {
-                        "temperature": 0,
-                        "maxOutputTokens": 1024,
-                        "responseMimeType": "application/json"  # forces JSON mode
-                    }
+                    "model": "llama-3.3-70b-versatile",
+                    "messages": [{"role": "user", "content": prompt}],
+                    "temperature": 0,
+                    "max_tokens": 1024,
+                    "response_format": {"type": "json_object"}
                 }
             )
             resp.raise_for_status()
             
-            # Log the raw response so you can see exactly what Gemini returns
-            raw = resp.json()["candidates"][0]["content"]["parts"][0]["text"].strip()
-            logger.info(f"[CLAIM ANALYZER] Gemini raw response: {raw}")
+            # Log the raw response so you can see exactly what Groq returns
+            raw = resp.json()["choices"][0]["message"]["content"].strip()
+            logger.info(f"[CLAIM ANALYZER] Groq raw response: {raw}")
             
-            # Extract JSON block using regex in case Gemini includes conversational text
-            match = re.search(r'\{.*\}', raw, re.DOTALL)
-            if match:
-                raw = match.group(0)
-            else:
-                raw = raw.replace("```json", "").replace("```", "").strip()
-                
             result = json.loads(raw)
 
             # Validate topic
@@ -91,7 +87,7 @@ Now analyze this claim and return ONLY raw JSON, no markdown, no explanation:
             # Validate keywords — must be a non-empty list
             if not result.get("keywords") or not isinstance(result["keywords"], list):
                 result["keywords"] = []
-                logger.warning("[CLAIM ANALYZER] Gemini returned empty keywords")
+                logger.warning("[CLAIM ANALYZER] Groq returned empty keywords")
 
             logger.info(
                 f"[CLAIM ANALYZER] topic={result.get('topic')} | "
@@ -104,5 +100,5 @@ Now analyze this claim and return ONLY raw JSON, no markdown, no explanation:
         logger.warning(f"[CLAIM ANALYZER] JSON parse failed: {e} | raw was: {raw}")
         return {"topic": "general", "keywords": [], "primary_subject": claim[:60]}
     except Exception as e:
-        logger.warning(f"[CLAIM ANALYZER] Gemini call failed: {e}")
+        logger.error(f"[CLAIM ANALYZER] Groq call failed: {e}")
         return {"topic": "general", "keywords": [], "primary_subject": claim[:60]}

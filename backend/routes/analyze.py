@@ -42,6 +42,10 @@ class AnalyzeResponse(BaseModel):
     score_fever: int | None = None
     score_gfactcheck: int | None = None
     score_wikidata: int | None = None
+    score_groq_news: int | None = None
+    score_groq_fact: int | None = None
+    groq_news_details: dict = {}
+    groq_fact_details: dict = {}
     crosscheck_sources: list[dict] = []
     crosscheck_fallback: bool = False
     factcheck_details: dict = {}
@@ -115,15 +119,19 @@ async def analyze(request: AnalyzeRequest):
     from services.ml import compute_ml_score
     from services.crosscheck import crosscheck
     from services.factcheck import compute_fact_score
+    from services.groq_news_check import groq_news_check
+    from services.groq_fact_check import groq_fact_check
 
     nlp_future = loop.run_in_executor(executor, compute_nlp_score, article_body)
     source_future = loop.run_in_executor(executor, compute_source_score, source_domain, authors)
     ml_future = loop.run_in_executor(executor, compute_ml_score, article_body)
     crosscheck_future = asyncio.create_task(crosscheck(article_title or article_body[:120], input_type == "text"))
     factcheck_future = loop.run_in_executor(executor, compute_fact_score, article_body[:500])
+    groq_news_future = asyncio.create_task(groq_news_check(article_title or article_body[:500]))
+    groq_fact_future = asyncio.create_task(groq_fact_check(article_title or article_body[:500]))
 
-    nlp_result, source_result, ml_result, crosscheck_result, factcheck_result = await asyncio.gather(
-        nlp_future, source_future, ml_future, crosscheck_future, factcheck_future
+    nlp_result, source_result, ml_result, crosscheck_result, factcheck_result, groq_news_result, groq_fact_result = await asyncio.gather(
+        nlp_future, source_future, ml_future, crosscheck_future, factcheck_future, groq_news_future, groq_fact_future
     )
 
     # ── Step 3: Fuse scores ─────────────────────────────────────────────
@@ -138,6 +146,8 @@ async def analyze(request: AnalyzeRequest):
         crosscheck_score=crosscheck_result["crosscheck_score"],
         crosscheck_sources=crosscheck_result["corroborating_sources"],
         factcheck_result=factcheck_result,
+        groq_news_result=groq_news_result,
+        groq_fact_result=groq_fact_result,
         article_age_hours=article_age_hours,
         serper_results_count=crosscheck_result["results_found"],
         input_type=input_type,
@@ -202,6 +212,10 @@ async def analyze(request: AnalyzeRequest):
                 "gfactcheck": factcheck_result.get("gfactcheck_details", {}),
                 "wikidata": factcheck_result.get("wikidata_details", {}),
                 "sub_signals_failed": factcheck_result.get("sub_signals_failed", []),
+                "score_groq_news": groq_news_result.get("score"),
+                "score_groq_fact": groq_fact_result.get("score"),
+                "groq_news_details": groq_news_result,
+                "groq_fact_details": groq_fact_result,
             },
             "article_age_hours": article_age_hours,
             "verdict": final["verdict"],
@@ -240,6 +254,8 @@ async def analyze(request: AnalyzeRequest):
         score_fever=factcheck_result.get("score_fever"),
         score_gfactcheck=factcheck_result.get("score_gfactcheck"),
         score_wikidata=factcheck_result.get("score_wikidata"),
+        score_groq_news=groq_news_result.get("score"),
+        score_groq_fact=groq_fact_result.get("score"),
         crosscheck_sources=crosscheck_result["corroborating_sources"],
         crosscheck_fallback=final["crosscheck_fallback"],
         factcheck_details={
@@ -248,6 +264,8 @@ async def analyze(request: AnalyzeRequest):
             "wikidata": factcheck_result.get("wikidata_details", {}),
             "sub_signals_failed": factcheck_result.get("sub_signals_failed", []),
         },
+        groq_news_details=groq_news_result,
+        groq_fact_details=groq_fact_result,
         formula_used=final.get("formula_used"),
         article_age_hours=article_age_hours,
         verdict=final["verdict"],

@@ -8,27 +8,11 @@ Uses Google Gemini API depending on config.
 """
 
 import os
+import httpx
+import json
 
-_client = None
-_provider = None
-
-
-def _get_client():
-    global _client, _provider
-
-    if _client is not None:
-        return _client, _provider
-
-    # Try Gemini first
-    gemini_key = os.getenv("GEMINI_API_KEY")
-    if gemini_key and gemini_key != "your-gemini-key":
-        import google.generativeai as genai
-        genai.configure(api_key=gemini_key)
-        _client = genai
-        _provider = "gemini"
-        return _client, _provider
-
-    return None, None
+def _get_groq_key():
+    return os.getenv("GROQ_API_KEY")
 
 
 def generate_explanation(
@@ -53,7 +37,7 @@ def generate_explanation(
 
     Falls back to a template-based explanation if no LLM API key is configured.
     """
-    client, provider = _get_client()
+    groq_key = _get_groq_key()
 
     # Build corroboration context for the prompt
     corroboration_text = _build_corroboration_text(
@@ -81,7 +65,7 @@ Signal Breakdown:
 
 Write a concise explanation. Do not use bullet points. Do not say "I" or mention yourself. Refer to the article in third person. If corroborating sources were found, mention the outlet names. If fact-checkers have verified this claim, mention their verdict. If the story was too recent to verify, mention that."""
 
-    if client is None:
+    if not groq_key:
         # Template fallback — no LLM key configured
         return _template_explanation(
             article_title, source_domain, verdict, final_score,
@@ -91,15 +75,23 @@ Write a concise explanation. Do not use bullet points. Do not say "I" or mention
         )
 
     try:
-        if provider == "gemini":
-            model = client.GenerativeModel("gemini-2.5-flash")
-            response = model.generate_content(
-                prompt,
-                generation_config=client.types.GenerationConfig(
-                    temperature=0.3,
-                )
+        with httpx.Client(timeout=10.0) as client:
+            resp = client.post(
+                "https://api.groq.com/openai/v1/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {groq_key}",
+                    "Content-Type": "application/json"
+                },
+                json={
+                    "model": "llama-3.3-70b-versatile",
+                    "messages": [{"role": "user", "content": prompt}],
+                    "temperature": 0.3,
+                    "max_tokens": 512
+                }
             )
-            return response.text.strip()
+            resp.raise_for_status()
+            raw = resp.json()["choices"][0]["message"]["content"].strip()
+            return raw
 
     except Exception as e:
         print(f"LLM explanation error: {e}")

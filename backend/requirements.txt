@@ -26,8 +26,7 @@ supabase>=2.7.2
 pandas>=2.2.2
 
 # LLM explanations
-google-generativeai>=0.8.0
-
+# (using Groq natively via httpx)
 # Fact verification (Signal 5)
 sentence-transformers>=2.2.0
 datasets>=2.14.0,<3.0.0

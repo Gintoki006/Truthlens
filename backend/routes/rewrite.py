@@ -6,6 +6,7 @@ using the LLM (Gemini). Returns both the original and rewritten text.
 """
 
 import os
+import httpx
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
@@ -51,23 +52,28 @@ Original article:
 
 Rewritten article:"""
 
-    # Try LLM
-    gemini_key = os.getenv("GEMINI_API_KEY")
-    if gemini_key and gemini_key != "your-gemini-key":
-        try:
-            import google.generativeai as genai
-            genai.configure(api_key=gemini_key)
-            model = genai.GenerativeModel("gemini-2.5-flash")
-            response = model.generate_content(
-                prompt,
-                generation_config=genai.types.GenerationConfig(
-                    temperature=0.2,
-                )
-            )
-            rewritten = response.text.strip()
-            return RewriteResponse(original=text, rewritten=rewritten)
-        except Exception as e:
-            print(f"Rewrite LLM error: {e}")
-            raise HTTPException(status_code=500, detail="Failed to generate rewrite. Please try again.")
-    else:
+    groq_key = os.getenv("GROQ_API_KEY")
+    if not groq_key:
         raise HTTPException(status_code=503, detail="LLM API key not configured. Debiased rewrite is unavailable.")
+
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            resp = await client.post(
+                "https://api.groq.com/openai/v1/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {groq_key}",
+                    "Content-Type": "application/json"
+                },
+                json={
+                    "model": "llama-3.3-70b-versatile",
+                    "messages": [{"role": "user", "content": prompt}],
+                    "temperature": 0.2,
+                    "max_tokens": 2048
+                }
+            )
+            resp.raise_for_status()
+            rewritten = resp.json()["choices"][0]["message"]["content"].strip()
+            return RewriteResponse(original=text, rewritten=rewritten)
+    except Exception as e:
+        print(f"Rewrite LLM error: {e}")
+        raise HTTPException(status_code=500, detail="Failed to generate rewrite. Please try again.")
