@@ -176,51 +176,23 @@ def _template_explanation(
     else:
         parts.append(f'This article scores {final_score}/100, indicating it is likely unreliable or misleading.')
 
-    # NLP signal
-    if nlp_score < 50:
-        parts.append(f'The text analysis flagged emotionally charged or sensationalist language (NLP score: {nlp_score}/100).')
-    elif nlp_score > 75:
-        parts.append(f'The writing style appears balanced and factual (NLP score: {nlp_score}/100).')
+    # Content Intelligence
+    if content_score < 50:
+        parts.append(f'The content analysis flagged emotionally charged or sensationalist language (Content score: {content_score}/100).')
+    elif content_score > 75:
+        parts.append(f'The writing style and tone appear balanced and factual (Content score: {content_score}/100).')
 
-    # Source signal
-    if not source_info.get("is_known", False):
-        parts.append(f'The source domain ({source_domain}) is not in our credibility database and could not be verified.')
-    elif source_score < 40:
-        parts.append(f'The source ({source_domain}) has a low credibility rating in our database (score: {source_score}/100).')
+    # Source & Corroboration
+    if source_score < 40:
+        parts.append(f'The source has a low credibility rating or lacks corroboration (Source score: {source_score}/100).')
     elif source_score > 70:
-        parts.append(f'The source ({source_domain}) is rated as generally credible (score: {source_score}/100).')
+        parts.append(f'The source is rated as generally credible and well-corroborated (Source score: {source_score}/100).')
 
-    # Cross-verification signal
-    sources = corroborating_sources or []
-    if crosscheck_fallback:
-        parts.append('This story may be too recent to verify via search — cross-verification was skipped.')
-    elif crosscheck_score is not None and len(sources) > 0:
-        outlet_names = [s.get("domain", "").replace(".com", "").title() for s in sources[:3]]
-        parts.append(f'{", ".join(outlet_names)} {"all" if len(outlet_names) > 1 else "also"} reported this story, supporting its authenticity.')
-    elif crosscheck_score is not None and len(sources) == 0:
-        parts.append('No major outlets were found reporting this claim, which lowers its credibility.')
+    # Fact Verification
+    if facts_score < 40:
+        parts.append(f'Fact-checking engines found contradictions or unverifiable claims (Facts score: {facts_score}/100).')
+    elif facts_score > 75:
+        parts.append(f'Core factual claims were strongly verified by live web context (Facts score: {facts_score}/100).')
 
-    # ML signal
-    if ml_score < 40:
-        parts.append(f'Machine learning classifiers flagged the content as likely fabricated.')
-    elif ml_score > 70:
-        parts.append(f'Machine learning classifiers indicate the content is consistent with genuine reporting.')
-
-    # Fact verification signal
-    if factcheck_result:
-        fact_score = factcheck_result.get("score", 50)
-        gfc = factcheck_result.get("gfactcheck_details", {})
-        wiki = factcheck_result.get("wikidata_details", {})
-        confirmed_entities = [e for e in wiki.get("entity_results", []) if e.get("confirmed")]
-
-        if gfc.get("verdict"):
-            parts.append(f'Fact-checkers rate this claim as "{gfc["verdict"]}" (via {gfc.get("source", "professional fact-checker")}).')
-        elif confirmed_entities:
-            names = ", ".join(e["entity"] for e in confirmed_entities[:2])
-            parts.append(f'Key entities ({names}) were verified against Wikidata\'s knowledge base.')
-        elif fact_score > 70:
-            parts.append(f'Fact verification supports this claim (score: {fact_score}/100).')
-        elif fact_score < 30:
-            parts.append(f'Fact verification raises concerns about the accuracy of this claim (score: {fact_score}/100).')
 
     return " ".join(parts[:5])  # Cap at 5 sentences

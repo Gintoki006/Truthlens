@@ -28,13 +28,14 @@ Evaluate this claim on the following criteria and return a credibility score:
 3. KNOWN FACTS — Does this contradict well-established facts you know?
 4. MISINFORMATION PATTERNS — Does this match common conspiracy theory or hoax patterns?
    (microchips in vaccines, faked moon landing, 5G causing disease, etc.)
+5. SATIRE / PARODY — Is this clearly a satirical article (like The Onion or Babylon Bee) or a parody of real news?
 
 Scoring guide:
 - 85-100: Highly credible — factual tone, plausible, matches known reality
 - 65-84:  Mostly credible — minor issues with tone or minor unverifiable claims  
 - 45-64:  Uncertain — could be true but unverifiable or somewhat sensational
 - 25-44:  Suspicious — implausible, sensational, or matches known hoax patterns
-- 0-24:   Almost certainly false — contradicts known facts or is a known conspiracy
+- 0-24:   Almost certainly false — contradicts known facts, is a known conspiracy, or is explicitly SATIRE/PARODY
 
 Return ONLY raw JSON:
 {{

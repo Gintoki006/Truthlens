@@ -167,14 +167,15 @@ def compute_fever_score(claim: str) -> dict:
         matches = search_fever(claim, top_k=3)
     except Exception as e:
         logger.error(f"FEVER search error: {e}")
-        return {"score": 50, "top_match": None, "matches": [], "error": str(e)}
+        return {"score": 10, "top_match": None, "matches": [], "error": str(e)}
+
+    if not matches:
+        print(f"[FEVER] no matches found — score=10")
+        return {"score": 10, "top_match": None, "matches": []}
 
     print(f"[FEVER] query='{claim}'")
     for m in matches:
         print(f"[FEVER] match='{m['claim']}' | label={m['label']} | similarity={m['similarity']:.4f}")
-
-    if not matches:
-        return {"score": 10, "top_match": None, "matches": []}
 
     top = matches[0]
     sim = top["similarity"]
@@ -209,8 +210,8 @@ def compute_fever_score(claim: str) -> dict:
             score = 50  # neutral
 
     else:
-        # Low similarity — neutral
-        score = 50
+        # Low similarity — penalize heavily
+        score = 10
 
     print(f"[FEVER] final score={score} | sim={sim:.4f} | label={label}")
 

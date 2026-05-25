@@ -141,7 +141,7 @@ def compute_final_score(
     gn_misinfo      = groq_news_result.get("misinformation_pattern", False)
     gn_plausibility = groq_news_result.get("plausibility", "medium")
 
-    if gn_misinfo and gn_plausibility == "low" and gn_score <= 25:
+    if gn_score <= 30 and gn_plausibility == "low":
         if final_score > 35:
             final_score = min(final_score, 35)
             override_applied = True
@@ -161,7 +161,7 @@ def compute_final_score(
     groq_score      = groq_fact_result.get("score", 50)
 
     if groq_confidence == "high":
-        if groq_score <= 15:
+        if groq_score <= 25:
             # Groq is highly confident this is false
             if final_score > 35:
                 final_score = min(final_score, 35)
