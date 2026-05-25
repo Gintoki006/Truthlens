@@ -2,6 +2,20 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
+import { motion } from "framer-motion";
+
+const containerVariants = {
+  hidden: { opacity: 0 },
+  show: {
+    opacity: 1,
+    transition: { staggerChildren: 0.1 }
+  }
+};
+
+const itemVariants = {
+  hidden: { opacity: 0, x: -20 },
+  show: { opacity: 1, x: 0, transition: { type: "spring", stiffness: 300, damping: 24 } }
+};
 
 export default function LiveFeedView() {
   const [feedItems, setFeedItems] = useState([]);
@@ -68,10 +82,10 @@ export default function LiveFeedView() {
         </div>
 
         {/* Main Grid Layout */}
-        <div className="grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-12">
+        <div className="grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-8 lg:gap-12">
           
           {/* Left Column - Feed List */}
-          <div>
+          <div className="min-w-0">
             {/* Functional Filters */}
             <div className="bg-[#f2f1ec] dark:bg-surface-container border-t-[3px] border-[#1c1b1b] dark:border-stone-100 border-b border-[#d4d4d4] dark:border-stone-700 p-6 mb-8 flex flex-col md:flex-row justify-between items-start md:items-end gap-6">
               
@@ -79,7 +93,7 @@ export default function LiveFeedView() {
                 <div className="hidden md:block">
                   <div className="font-label text-[8px] font-bold uppercase tracking-[0.2em] text-[#747878] dark:text-stone-400 mb-2">SECTOR FILTER</div>
                   <div className="flex gap-1">
-                    {['ALL', 'POLITICS', 'GENERAL', 'HEALTH', 'TECHNOLOGY'].map(cat => (
+                    {['ALL', 'GENERAL', 'BUSINESS', 'TECHNOLOGY', 'HEALTH', 'SCIENCE'].map(cat => (
                       <button 
                         key={cat}
                         onClick={() => setCategoryFilter(cat)}
@@ -110,7 +124,12 @@ export default function LiveFeedView() {
                 <h3 className="font-serif text-2xl text-primary">No live broadcasts found for this sector.</h3>
               </div>
             ) : (
-              <div className="flex flex-col border-b-[2px] border-[#1c1b1b] dark:border-stone-100">
+              <motion.div 
+                variants={containerVariants}
+                initial="hidden"
+                animate="show"
+                className="flex flex-col border-b-[2px] border-[#1c1b1b] dark:border-stone-100"
+              >
                 {feedItems.map((item, idx) => {
                   const issueNum = String(feedItems.length - idx).padStart(3, '0');
                   const dateStr = item.published_at 
@@ -118,18 +137,18 @@ export default function LiveFeedView() {
                     : new Date(item.analyzed_at).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }).toUpperCase();
                   
                   return (
-                    <Link 
-                      key={item.id}
-                      href={item.analysis_id ? `/results/${item.analysis_id}?view=results` : "#"}
-                      className="flex flex-col md:flex-row gap-6 md:gap-8 py-8 border-t-[1.5px] border-[#d4d4d4] dark:border-stone-700 group hover:bg-[#e5e4df]/30 dark:hover:bg-surface-container-low transition-colors px-2"
-                    >
+                    <motion.div variants={itemVariants} key={item.id}>
+                      <Link 
+                        href={item.analysis_id ? `/results/${item.analysis_id}?view=results` : "#"}
+                        className="flex flex-col md:flex-row gap-6 md:gap-8 py-8 border-t-[1.5px] border-[#d4d4d4] dark:border-stone-700 group hover:bg-[#e5e4df]/30 dark:hover:bg-surface-container-low transition-colors px-2"
+                      >
                       <div className="flex flex-col shrink-0 md:w-24 pt-1">
                         <span className="font-label text-[9px] uppercase tracking-[0.2em] text-[#747878] dark:text-stone-400 font-bold mb-1">BROADCAST NO.</span>
                         <span className="font-label text-[14px] uppercase tracking-[0.2em] text-[#1c1b1b] dark:text-stone-100 font-black">REF {issueNum}</span>
                       </div>
                       
-                      <div className="flex-1 flex flex-col justify-center">
-                        <h3 className="font-serif text-2xl md:text-[28px] text-[#1c1b1b] dark:text-stone-100 leading-[1.1] mb-3 group-hover:text-[#b7211f] transition-colors">
+                      <div className="flex-1 flex flex-col justify-center min-w-0">
+                        <h3 className="font-serif text-2xl md:text-[28px] text-[#1c1b1b] dark:text-stone-100 leading-[1.1] mb-3 group-hover:text-[#b7211f] transition-colors break-words">
                           {item.headline || "Unknown Transmission"}
                         </h3>
                         <div className="flex items-center gap-3">
@@ -175,15 +194,16 @@ export default function LiveFeedView() {
                           </div>
                         </div>
                       </div>
-                    </Link>
+                      </Link>
+                    </motion.div>
                   );
                 })}
-              </div>
+              </motion.div>
             )}
           </div>
 
           {/* Right Column - Latest Alerts Sidebar */}
-          <div className="hidden lg:block">
+          <div className="w-full">
             <div className="bg-[#fcfbf9] dark:bg-stone-900 border-[1.5px] border-[#e0dfda] dark:border-stone-800 p-8 relative shadow-sm">
               <div className="absolute top-6 right-6 w-12 h-12 border-[2px] border-[#f0f0f0] dark:border-stone-800 flex items-center justify-center opacity-50 z-0">
                 <div className="w-6 h-6 border-[2px] border-[#f0f0f0] dark:border-stone-800 animate-pulse bg-[#b7211f]/10" />

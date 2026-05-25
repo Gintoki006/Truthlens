@@ -2,36 +2,37 @@
 import { useState } from "react"
 import SubSignalRow from "./SubSignalRow"
 
-const GROUP_COLORS = {
-  content: { bg: "bg-[#f3edfc]", dot: "bg-[#7c4dff]", text: "text-[#7c4dff]" },
-  source:  { bg: "bg-[#e6f4ea]", dot: "bg-[#00c853]", text: "text-[#00c853]" },
-  facts:   { bg: "bg-[#fff8e1]", dot: "bg-[#ffc107]", text: "text-[#ffc107]" },
-}
-
 export default function GroupScoreBar({ groupKey, label, score, subSignals }) {
   const [expanded, setExpanded] = useState(false)
-  const c = GROUP_COLORS[groupKey] || GROUP_COLORS.content
+  
+  const isFacts = groupKey === 'facts'
+  const textColor = isFacts ? "text-[#b7211f]" : "text-[#1c1b1b] dark:text-stone-100"
+  const borderClass = isFacts ? "border-b-[3px] border-[#1c1b1b] dark:border-stone-100" : "border-b-[1px] border-[#d4d4d4] dark:border-stone-700"
+  
+  // Custom subtitles based on the exact dossier screenshot
+  const subtitle = groupKey === 'content' ? 'Semantic/NLP Audit' : 
+                   groupKey === 'source' ? 'Domain/Origin Index' : 
+                   'Internal Database Match'
 
   return (
-    <div className={`border-[0.5px] border-outline-variant ${c.bg}`}>
-      <div className="flex items-center justify-between p-3 cursor-pointer select-none"
-           onClick={() => setExpanded(!expanded)}>
-        <div className="flex items-center">
-          <div className={`w-3 h-3 rounded-full ${c.dot} mr-3`}></div>
-          <span className="font-body text-sm font-medium text-on-surface">{label}</span>
-        </div>
-        <div className="flex items-center gap-2">
-          <span className={`font-headline text-lg font-bold ${c.text}`}>{score}</span>
-          <span className={`text-[10px] ${c.text} flex items-center justify-center`}>
-            <span className="material-symbols-outlined text-[16px]">{expanded ? "expand_less" : "expand_more"}</span>
+    <div className={`${borderClass} pb-3 mb-6`}>
+      <div className="flex justify-between items-end cursor-pointer group" onClick={() => setExpanded(!expanded)}>
+        <div className="flex flex-col">
+          <span className={`font-serif text-base font-bold ${textColor} uppercase group-hover:opacity-70 transition-opacity`}>
+            {label}
+            {subSignals && Object.keys(subSignals).length > 0 && (
+              <span className="material-symbols-outlined text-[18px] ml-2 align-middle">{expanded ? "expand_less" : "expand_more"}</span>
+            )}
           </span>
+          <span className="font-label text-[9px] uppercase tracking-[0.1em] text-[#747878] dark:text-stone-400 italic mt-1">{subtitle}</span>
         </div>
+        <span className={`font-serif text-3xl font-black ${textColor} leading-none`}>{score}</span>
       </div>
+      
       {expanded && subSignals && (
-        <div className="px-3 pb-3 space-y-1">
-          <div className="border-t-[0.5px] border-outline-variant mb-2 opacity-30"></div>
+        <div className="pt-4 space-y-2">
           {Object.entries(subSignals).map(([key, val]) => (
-            <SubSignalRow key={key} label={key.replace(/_/g, ' ')} score={val} colorClass={c.text} />
+            <SubSignalRow key={key} label={key.replace(/_/g, ' ')} score={val} colorClass={textColor} />
           ))}
         </div>
       )}

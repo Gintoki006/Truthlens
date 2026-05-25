@@ -19,7 +19,7 @@ async def process_live_feed():
 
     supabase = create_client(supabase_url, supabase_key)
     
-    categories = ["general", "science", "health", "technology"]
+    categories = ["business", "general", "technology", "health", "science", "sports"]
     
     for category in categories:
         print(f"[*] Fetching headlines for category: {category}")

@@ -4,11 +4,51 @@ import { useState, useEffect } from "react";
 import { useAuth } from "@/context/AuthContext";
 import { getSupabaseBrowserClient } from "@/lib/supabase";
 import Link from "next/link";
+import { motion, AnimatePresence } from "framer-motion";
+
+const containerVariants = {
+  hidden: { opacity: 0 },
+  show: {
+    opacity: 1,
+    transition: { staggerChildren: 0.1 }
+  }
+};
+
+const itemVariants = {
+  hidden: { opacity: 0, y: 20 },
+  show: { opacity: 1, y: 0, transition: { type: "spring", stiffness: 300, damping: 24 } }
+};
 
 export default function DashboardView() {
   const { user } = useAuth();
   const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [liveFeed, setLiveFeed] = useState([]);
+  const [feedIndex, setFeedIndex] = useState(0);
+
+  useEffect(() => {
+    async function fetchLiveFeed() {
+      try {
+        const res = await fetch('/api/feed');
+        if (res.ok) {
+          const data = await res.json();
+          if (data.items) {
+            setLiveFeed(data.items.slice(0, 10)); // up to 10 latest
+          }
+        }
+      } catch (err) {}
+    }
+    fetchLiveFeed();
+  }, []);
+
+  useEffect(() => {
+    if (liveFeed.length > 1) {
+      const interval = setInterval(() => {
+        setFeedIndex((prev) => (prev + 1) % liveFeed.length);
+      }, 6000);
+      return () => clearInterval(interval);
+    }
+  }, [liveFeed]);
 
   useEffect(() => {
     async function fetchStats() {
@@ -70,53 +110,61 @@ export default function DashboardView() {
         {/* OVERVIEW Header */}
         <div className="border-b-[3px] border-[#1c1b1b] dark:border-stone-100 pb-2 mb-10 flex flex-col sm:flex-row justify-between items-start sm:items-end gap-2">
           <span className="font-label text-[10px] tracking-[0.2em] uppercase font-bold text-[#1c1b1b] dark:text-stone-100">OVERVIEW</span>
-          <span className="font-label text-[8px] tracking-[0.1em] uppercase text-on-surface-variant">COMPLETED IN LONDON • GLOBAL SKEW DETECTED -2.4% • SUSPICIOUS TRAFFIC</span>
+          <span className="font-label text-[8px] tracking-[0.1em] uppercase text-on-surface-variant">SYSTEM STATUS: ONLINE • MONITORING ACTIVE SIGNALS • GLOBAL FEED SYNCHRONIZED</span>
         </div>
 
         {/* Top Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mb-16">
-          {/* Truth Index Score */}
-          <div className="bg-[#ededed] dark:bg-surface-container relative p-8 border-t-[6px] border-[#1c1b1b] dark:border-stone-100 flex flex-col justify-between min-h-[260px] shadow-sm">
-            <div className="absolute inset-0 opacity-[0.04] pointer-events-none" style={{ backgroundImage: 'radial-gradient(#000 1px, transparent 1px)', backgroundSize: '4px 4px' }} />
-            <h3 className="font-label text-[10px] tracking-[0.2em] uppercase text-[#747878] dark:text-stone-400 relative z-10 font-bold">TRUTH INDEX SCORE</h3>
-            <div className="flex items-center mt-6 relative z-10">
-              <span className="text-[100px] leading-none font-serif font-black tracking-tighter text-[#1c1b1b] dark:text-stone-100">{stats.avgScore}</span>
-              <span className="text-[50px] font-black text-[#1c1b1b] dark:text-stone-100 mx-2">=</span>
-              <div className="flex flex-col gap-1 ml-1">
-                <span className="bg-[#b7211f] text-white text-[8px] font-bold px-1.5 py-0.5 uppercase tracking-widest text-center">QUAR</span>
-                <span className="bg-[#b7211f] text-white text-[8px] font-bold px-1.5 py-0.5 uppercase tracking-widest text-center">LEVEL</span>
-              </div>
-            </div>
-            <div className="mt-10 relative z-10 w-full max-w-[280px]">
-              <div className="h-[3px] w-full bg-[#d4d4d4] dark:bg-stone-700 relative">
-                <div className="h-[3px] bg-[#1c1b1b] dark:bg-stone-200 absolute left-0 top-0 transition-all duration-1000" style={{ width: `${stats.avgScore}%` }} />
-              </div>
-              <div className="flex justify-between mt-3">
-                <span className="font-label text-[7px] uppercase tracking-[0.15em] text-[#747878] dark:text-stone-400 font-bold">LOW TRUST</span>
-                <span className="font-label text-[7px] uppercase tracking-[0.15em] text-[#747878] dark:text-stone-400 font-bold">HIGH AUTHORITY</span>
-              </div>
-            </div>
-          </div>
+        <motion.div 
+          variants={containerVariants}
+          initial="hidden"
+          animate="show"
+          className="mb-16"
+        >
 
-          {/* Disinfo Velocity */}
-          <div className="bg-[#ededed] dark:bg-surface-container relative p-8 border-t-[6px] border-[#b7211f] flex flex-col min-h-[260px] shadow-sm">
+          {/* Live Feed Ticker */}
+          <motion.div variants={itemVariants} className="bg-[#ededed] dark:bg-surface-container relative p-8 border-t-[6px] border-[#b7211f] flex flex-col min-h-[260px] shadow-sm overflow-hidden">
             <div className="absolute inset-0 opacity-[0.04] pointer-events-none" style={{ backgroundImage: 'radial-gradient(#000 1px, transparent 1px)', backgroundSize: '4px 4px' }} />
-            <h3 className="font-label text-[10px] tracking-[0.2em] uppercase text-[#747878] dark:text-stone-400 relative z-10 font-bold">DISINFO VELOCITY</h3>
-            <div className="mt-8 relative z-10">
-              <span className="text-[80px] leading-none font-serif font-black tracking-tighter text-[#1c1b1b] dark:text-stone-100">+18%</span>
+            <div className="flex justify-between items-center relative z-10">
+              <h3 className="font-label text-[10px] tracking-[0.2em] uppercase text-[#747878] dark:text-stone-400 font-bold flex items-center gap-2">
+                <span className="w-1.5 h-1.5 rounded-full bg-[#b7211f] animate-pulse"></span>
+                LIVE INTERCEPTS
+              </h3>
             </div>
-            {/* Fake bar chart graphic */}
-            <div className="mt-10 relative z-10 flex items-end gap-1.5 h-14">
-              <div className="w-3.5 bg-[#b7211f] h-[30%]" />
-              <div className="w-3.5 bg-[#b7211f] h-[45%]" />
-              <div className="w-3.5 bg-[#b7211f] h-[35%]" />
-              <div className="w-3.5 bg-[#b7211f] h-[65%]" />
-              <div className="w-3.5 bg-[#b7211f] h-[55%]" />
-              <div className="w-3.5 bg-[#b7211f] h-[75%]" />
-              <div className="w-3.5 bg-[#1c1b1b] dark:bg-stone-100 h-[85%]" />
+            <div className="mt-6 relative z-10 flex-1 flex flex-col justify-center">
+              <AnimatePresence mode="wait">
+                {liveFeed.length > 0 ? (
+                  <motion.div
+                    key={feedIndex}
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -10 }}
+                    transition={{ duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
+                    className="flex flex-col h-full justify-center"
+                  >
+                    <span className="font-label text-[9px] uppercase tracking-widest text-[#747878] dark:text-stone-400 mb-3">
+                      {liveFeed[feedIndex].source_domain || liveFeed[feedIndex].source_name || "UNKNOWN"} • {new Date(liveFeed[feedIndex].published_at || liveFeed[feedIndex].analyzed_at || new Date()).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
+                    </span>
+                    <h4 className="font-serif text-[22px] md:text-[26px] font-bold text-[#1c1b1b] dark:text-stone-100 leading-tight hover:text-[#b7211f] transition-colors line-clamp-3">
+                      <Link href={liveFeed[feedIndex].analysis_id ? `/results/${liveFeed[feedIndex].analysis_id}?view=results` : '#'}>
+                        {liveFeed[feedIndex].headline || "Unknown Signal Intercepted"}
+                      </Link>
+                    </h4>
+                    <span className={`mt-4 inline-flex self-start font-label text-[8px] font-bold uppercase tracking-[0.2em] px-2 py-1 border ${
+                      liveFeed[feedIndex].verdict === 'fake' ? 'border-[#b7211f] text-[#b7211f] bg-[#FCEBEB]/50' : 
+                      liveFeed[feedIndex].verdict === 'suspicious' ? 'border-[#c4842b] text-[#c4842b] bg-[#fdfaf5]/50' : 
+                      liveFeed[feedIndex].verdict === 'real' ? 'border-[#00c853] text-[#00c853] bg-[#e6f4ea]/50' :
+                      'border-[#747878] text-[#747878] bg-[#e5e4df]/50'
+                    }`}>
+                      {liveFeed[feedIndex].verdict || "UNVERIFIED"}
+                    </span>
+                  </motion.div>
+                ) : (
+                  <div className="text-[#747878] font-label text-[10px] tracking-[0.1em] uppercase">LISTENING FOR SIGNALS...</div>
+                )}
+              </AnimatePresence>
             </div>
-          </div>
-        </div>
+          </motion.div>
+        </motion.div>
 
         {/* ACTIVE INVESTIGATIONS Header */}
         <div className="flex justify-between items-end border-b-[4px] border-[#1c1b1b] dark:border-stone-100 pb-2 mb-0">
@@ -136,29 +184,34 @@ export default function DashboardView() {
         </div>
 
         {/* Table Rows */}
-        <div className="flex flex-col">
+        <motion.div 
+          variants={containerVariants}
+          initial="hidden"
+          animate="show"
+          className="flex flex-col"
+        >
           {stats.recentAnalyses.map((item, idx) => {
             const isCritical = item.verdict === 'fake';
             const isHighRisk = item.verdict === 'suspicious';
             const isCleared = item.verdict === 'real';
 
             return (
-              <Link 
-                key={item.id} 
-                href={`/results/${item.id}?view=results`}
-                className="grid grid-cols-[80px_1fr_130px_80px_100px] md:grid-cols-[100px_1fr_150px_100px_120px] gap-2 md:gap-4 px-6 py-8 border-b border-[#d4d4d4] dark:border-stone-700 hover:bg-[#e5e4df]/30 dark:hover:bg-surface-container-low transition-colors group"
-              >
-                <div className="flex flex-col justify-start pt-1">
-                  <span className="font-label text-[9px] font-bold uppercase tracking-widest text-[#1c1b1b] dark:text-stone-100 leading-none">#AUD-</span>
-                  <span className="font-label text-[9px] font-bold uppercase tracking-widest text-[#1c1b1b] dark:text-stone-100 mt-1">{item.id.substring(0,4)}</span>
-                </div>
-                
-                <div className="flex flex-col justify-start pr-4">
-                  <span className="font-serif text-[17px] font-bold text-[#1c1b1b] dark:text-stone-100 group-hover:text-[#b7211f] transition-colors leading-[1.2] mb-3">
+              <motion.div variants={itemVariants} key={item.id}>
+                <Link 
+                  href={`/results/${item.id}?view=results`}
+                  className="grid grid-cols-[80px_1fr_130px_80px_100px] md:grid-cols-[100px_1fr_150px_100px_120px] gap-2 md:gap-4 px-6 py-8 border-b border-[#d4d4d4] dark:border-stone-700 hover:bg-[#e5e4df]/30 dark:hover:bg-surface-container-low transition-colors group"
+                >
+                  <div className="flex flex-col justify-start pt-1">
+                    <span className="font-label text-[9px] font-bold uppercase tracking-widest text-[#1c1b1b] dark:text-stone-100 leading-none">#AUD-</span>
+                    <span className="font-label text-[9px] font-bold uppercase tracking-widest text-[#1c1b1b] dark:text-stone-100 mt-1">{String(idx + 1).padStart(3, '0')}</span>
+                  </div>
+                  
+                  <div className="flex flex-col justify-start pr-4 min-w-0">
+                  <span className="font-serif text-[17px] font-bold text-[#1c1b1b] dark:text-stone-100 group-hover:text-[#b7211f] transition-colors leading-[1.2] mb-3 break-words">
                     {item.article_title || "Unverified claims of central bank liquidity crisis"}
                   </span>
                   <span className="font-label text-[7px] uppercase tracking-[0.2em] text-[#747878] dark:text-stone-400 font-bold">
-                    CLUSTER ID: FN-{item.id.substring(0,4).toUpperCase()}-Z
+                    CLUSTER ID: FN-{String(idx + 1).padStart(3, '0')}-Z
                   </span>
                 </div>
 
@@ -201,10 +254,11 @@ export default function DashboardView() {
                     </div>
                   )}
                 </div>
-              </Link>
+                </Link>
+              </motion.div>
             );
           })}
-        </div>
+        </motion.div>
 
       </div>
     </div>

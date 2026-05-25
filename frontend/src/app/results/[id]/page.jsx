@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, Fragment } from "react";
 import { useParams, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { useAnalysis } from "@/hooks/useAnalysis";
@@ -39,6 +39,13 @@ export default function ResultsPage() {
   const [isSidebarExpanded, setIsSidebarExpanded] = useState(true);
 
   useEffect(() => {
+    const view = searchParams.get("view");
+    if (view) {
+      setActiveView(view);
+    }
+  }, [searchParams]);
+
+  useEffect(() => {
     const updateTime = () => {
       const now = new Date();
       const timeString = now.toISOString().substring(11, 19);
@@ -48,6 +55,26 @@ export default function ResultsPage() {
     const interval = setInterval(updateTime, 1000);
     return () => clearInterval(interval);
   }, []);
+
+  const [tickerItems, setTickerItems] = useState([]);
+  
+  useEffect(() => {
+    async function fetchTicker() {
+      try {
+        const res = await fetch('/api/feed?limit=20');
+        if (res.ok) {
+          const data = await res.json();
+          if (data.items) {
+            const analyzed = data.items.filter(item => item.verdict);
+            const toShow = analyzed.length >= 3 ? analyzed : data.items;
+            setTickerItems(toShow.slice(0, 5));
+          }
+        }
+      } catch (err) {}
+    }
+    fetchTicker();
+  }, []);
+
   useEffect(() => {
     if (analysis) {
       setVotes({
@@ -221,18 +248,47 @@ export default function ResultsPage() {
       {/* Global Misinformation Ticker */}
       <div className="w-full bg-primary text-on-primary font-label text-[10px] tracking-[0.2em] uppercase py-2 px-4 flex justify-between items-center border-b-[0.5px] border-outline-variant">
         <div className="flex items-center space-x-4">
-          <span className="font-bold">VOL. LXIV</span>
-          <span className="opacity-70">No. 28,452</span>
+          <span className="font-bold">TRUTHLENS OS</span>
+          <span className="opacity-70">— NO. 402</span>
         </div>
-        <div className="flex-grow overflow-hidden relative h-4 ml-8">
-          <div className="absolute whitespace-nowrap animate-[ticker_30s_linear_infinite] flex space-x-8">
-            <span><span className="text-secondary font-bold mr-2">ALERT:</span> SYNTHETIC AUDIO DETECTED IN SECTOR 4</span>
-            <span className="text-outline-variant">{"///"}</span>
-            <span>GLOBAL CREDIBILITY INDEX DOWN 0.4%</span>
-            <span className="text-outline-variant">{"///"}</span>
-            <span>NEW BOTNET CLUSTER IDENTIFIED (NODE: OMEGA)</span>
-            <span className="text-outline-variant">{"///"}</span>
-            <span><span className="text-secondary font-bold mr-2">UPDATE:</span> LINGUISTIC DRIFT IN PRIMARY SOURCES</span>
+        <div className="flex-grow overflow-hidden relative h-4 ml-8 flex items-center min-w-0">
+          <div className="absolute flex w-max animate-[marquee_40s_linear_infinite] hover:[animation-play-state:paused] items-center h-full top-0 left-0">
+            {tickerItems.length > 0 ? (
+              [...tickerItems, ...tickerItems].map((item, i) => (
+                <span key={i} className="flex items-center space-x-8 pr-8">
+                  <span>
+                    <span className={`font-bold mr-2 ${item.verdict === 'fake' ? 'text-[#b7211f]' : item.verdict === 'real' ? 'text-[#00c853]' : item.verdict === 'suspicious' ? 'text-[#c4842b]' : 'text-secondary'}`}>
+                      {item.verdict ? `[${item.verdict.toUpperCase()}]` : 'ALERT:'}
+                    </span>
+                    <Link href={item.analysis_id ? `/results/${item.analysis_id}?view=results` : '#'} className="text-white hover:text-white/70 transition-colors">
+                      {item.headline ? (item.headline.length > 60 ? item.headline.substring(0, 60) + '...' : item.headline) : "SYSTEM UPDATE"}
+                    </Link>
+                  </span>
+                  <span className="text-outline-variant">{"///"}</span>
+                </span>
+              ))
+            ) : (
+              [1, 2].map(idx => (
+                <Fragment key={idx}>
+                  <span className="flex items-center space-x-8 pr-8">
+                    <span><span className="text-secondary font-bold mr-2">ALERT:</span> SYNTHETIC AUDIO DETECTED IN SECTOR 4</span>
+                    <span className="text-outline-variant">{"///"}</span>
+                  </span>
+                  <span className="flex items-center space-x-8 pr-8">
+                    <span>GLOBAL CREDIBILITY INDEX DOWN 0.4%</span>
+                    <span className="text-outline-variant">{"///"}</span>
+                  </span>
+                  <span className="flex items-center space-x-8 pr-8">
+                    <span>NEW BOTNET CLUSTER IDENTIFIED (NODE: OMEGA)</span>
+                    <span className="text-outline-variant">{"///"}</span>
+                  </span>
+                  <span className="flex items-center space-x-8 pr-8">
+                    <span><span className="text-secondary font-bold mr-2">UPDATE:</span> LINGUISTIC DRIFT IN PRIMARY SOURCES</span>
+                    <span className="text-outline-variant">{"///"}</span>
+                  </span>
+                </Fragment>
+              ))
+            )}
           </div>
         </div>
         <div className="ml-4 flex items-center space-x-2">
@@ -242,52 +298,42 @@ export default function ResultsPage() {
       </div>
 
       {/* TopAppBar */}
-      <header className="bg-surface dark:bg-background text-primary dark:text-on-background docked full-width top-0 border-b-4 border-primary dark:border-on-background flat no shadows flex flex-col items-center w-full px-8 pt-6 pb-2 max-w-full">
-        <div className="w-full flex justify-between items-end mb-4">
-          <div className="flex flex-col">
-            <span className="font-label text-[10px] tracking-[0.2em] uppercase text-on-surface-variant">THE INVESTIGATIVE LEDGER</span>
+      <header className="bg-surface dark:bg-background text-primary dark:text-on-background docked full-width top-0 border-b-4 border-primary dark:border-on-background flat no shadows flex flex-col items-center w-full px-4 md:px-8 pt-6 pb-2 max-w-full relative">
+        <div className="w-full flex flex-col md:flex-row justify-between items-center md:items-end mb-4">
+          <div className="hidden md:flex flex-col flex-1 pb-4">
+            <span className="font-label text-[10px] tracking-[0.2em] uppercase text-on-surface-variant">THE VERIFICATION ENGINE</span>
           </div>
-          <h1 className="text-6xl md:text-8xl text-center font-black font-serif uppercase tracking-tighter text-slate-900 dark:text-stone-100 border-b-4 border-slate-900 dark:border-stone-100 mb-2 py-4">
+          <h1 className="text-4xl md:text-6xl lg:text-8xl text-center font-black font-serif uppercase tracking-tighter text-slate-900 dark:text-stone-100 border-b-4 border-slate-900 dark:border-stone-100 mb-2 py-2 md:py-4 shrink-0">
             <Link href="/">TRUTHLENS</Link>
           </h1>
-          <div className="flex items-center space-x-6">
-            {user && (
-              <button 
-                onClick={handleBookmark}
-                disabled={bookmarkLoading}
-                className={`hover:text-secondary dark:hover:text-secondary-fixed transition-colors ${bookmarked ? 'text-secondary' : ''}`}
-                title={bookmarked ? "Remove bookmark" : "Bookmark"}
-              >
-                <span className="material-symbols-outlined" data-icon="bookmark">{bookmarked ? 'bookmark_added' : 'bookmark_add'}</span>
-              </button>
-            )}
+          <div className="flex items-center justify-end md:flex-1 space-x-6 md:pb-4 absolute top-6 right-4 md:relative md:top-auto md:right-auto">
             <button className="hover:text-secondary dark:hover:text-secondary-fixed transition-colors">
               <span className="material-symbols-outlined" data-icon="settings">settings</span>
             </button>
           </div>
         </div>
-        <nav className="w-full flex justify-center space-x-12 mt-2 hidden sm:flex">
+        <nav className="w-full flex justify-start md:justify-center space-x-6 md:space-x-12 mt-2 overflow-x-auto pb-2 no-scrollbar px-2 md:px-0">
           <button 
             onClick={() => setActiveView("dashboard")}
-            className={`uppercase tracking-[0.2em] text-[10px] font-label transition-colors pb-1 ${activeView === "dashboard" ? "text-primary dark:text-on-background font-bold border-b-2 border-primary dark:border-on-background" : "text-on-surface-variant dark:text-on-tertiary-container hover:text-secondary dark:hover:text-secondary-fixed"}`}
+            className={`uppercase tracking-[0.2em] text-xs font-label transition-colors pb-1 ${activeView === "dashboard" ? "text-primary dark:text-on-background font-bold border-b-2 border-primary dark:border-on-background" : "text-on-surface-variant dark:text-on-tertiary-container hover:text-secondary dark:hover:text-secondary-fixed"}`}
           >
             DASHBOARD
           </button>
           <button 
             onClick={() => setActiveView("results")}
-            className={`uppercase tracking-[0.2em] text-[10px] font-label transition-colors pb-1 ${activeView === "results" ? "text-primary dark:text-on-background font-bold border-b-2 border-primary dark:border-on-background" : "text-on-surface-variant dark:text-on-tertiary-container hover:text-secondary dark:hover:text-secondary-fixed"}`}
+            className={`uppercase tracking-[0.2em] text-xs font-label transition-colors pb-1 ${activeView === "results" ? "text-primary dark:text-on-background font-bold border-b-2 border-primary dark:border-on-background" : "text-on-surface-variant dark:text-on-tertiary-container hover:text-secondary dark:hover:text-secondary-fixed"}`}
           >
             CURRENT ANALYSIS
           </button>
           <button 
             onClick={() => setActiveView("archive")}
-            className={`uppercase tracking-[0.2em] text-[10px] font-label transition-colors pb-1 ${activeView === "archive" ? "text-primary dark:text-on-background font-bold border-b-2 border-primary dark:border-on-background" : "text-on-surface-variant dark:text-on-tertiary-container hover:text-secondary dark:hover:text-secondary-fixed"}`}
+            className={`uppercase tracking-[0.2em] text-xs font-label transition-colors pb-1 ${activeView === "archive" ? "text-primary dark:text-on-background font-bold border-b-2 border-primary dark:border-on-background" : "text-on-surface-variant dark:text-on-tertiary-container hover:text-secondary dark:hover:text-secondary-fixed"}`}
           >
             ARCHIVE LEDGER
           </button>
           <button 
             onClick={() => setActiveView("live_news")}
-            className={`uppercase tracking-[0.2em] text-[10px] font-label transition-colors pb-1 flex items-center gap-1 ${activeView === "live_news" ? "text-[#b7211f] font-bold border-b-2 border-[#b7211f]" : "text-on-surface-variant dark:text-on-tertiary-container hover:text-[#b7211f]"}`}
+            className={`uppercase tracking-[0.2em] text-xs font-label transition-colors pb-1 flex items-center gap-1 ${activeView === "live_news" ? "text-[#b7211f] font-bold border-b-2 border-[#b7211f]" : "text-on-surface-variant dark:text-on-tertiary-container hover:text-[#b7211f]"}`}
           >
             <span className="w-1.5 h-1.5 rounded-full bg-[#b7211f] animate-pulse"></span> LIVE NEWS
           </button>
@@ -296,7 +342,13 @@ export default function ResultsPage() {
 
       <div className="flex flex-1 overflow-hidden">
         {/* SideNavBar */}
-        <aside className={`bg-surface-container-low dark:bg-surface-container text-primary dark:text-on-background docked left-0 border-r-[0.5px] border-outline-variant flat no shadows flex flex-col h-full shrink-0 transition-all duration-300 overflow-y-auto hidden lg:flex ${isSidebarExpanded ? 'w-64' : 'w-20'}`}>
+        <motion.aside 
+          layout
+          initial={false}
+          animate={{ width: isSidebarExpanded ? 256 : 80 }}
+          transition={{ ease: [0.22, 1, 0.36, 1], duration: 0.4 }}
+          className="bg-surface-container-low dark:bg-surface-container text-primary dark:text-on-background docked left-0 border-r-[0.5px] border-outline-variant flat no shadows flex flex-col h-full shrink-0 overflow-y-hidden hidden lg:flex"
+        >
           <div className={`p-4 ${isSidebarExpanded ? 'p-6' : ''} editorial-rule-thin mb-4 flex-1`}>
             {/* Toggle Button */}
             <div className={`flex items-center ${isSidebarExpanded ? 'justify-end' : 'justify-center'} mb-6`}>
@@ -313,8 +365,8 @@ export default function ResultsPage() {
 
             {isSidebarExpanded && (
               <div className="flex flex-col mb-8">
-                <span className="font-display text-2xl font-bold text-primary truncate">TRUTHLENS LEDGER</span>
-                <span className="font-label uppercase tracking-widest text-[10px] text-on-surface-variant mt-1">INVESTIGATIVE UNIT</span>
+                <span className="font-display text-2xl font-bold text-primary truncate">TRUTHLENS</span>
+                <span className="font-label uppercase tracking-widest text-[10px] text-on-surface-variant mt-1">VERIFICATION ENGINE</span>
               </div>
             )}
             
@@ -398,230 +450,236 @@ export default function ResultsPage() {
               )}
             </nav>
           </div>
-        </aside>
+        </motion.aside>
 
         {/* Main Stage */}
-        <main className="flex-1 flex overflow-hidden bg-surface flex-col md:flex-row">
-          {activeView === "archive" ? (
-            <ArchiveView />
-          ) : activeView === "dashboard" ? (
-            <DashboardView />
-          ) : activeView === "live_news" ? (
-            <LiveFeedView />
-          ) : (
-            <>
-              {/* Verification Sidebar */}
-              <section className="w-full md:w-80 flex flex-col editorial-border-r h-full bg-surface-container-low overflow-y-auto shrink-0 border-b md:border-b-0 border-outline-variant">
-            <div className="p-6 space-y-8">
-              {/* Suspicious/Real Badge */}
-              <div className={`inline-flex items-center px-4 py-2 border-[1px] font-label text-xs tracking-[0.1em] uppercase font-bold rounded-full ${
-                analysis.verdict === 'fake' || analysis.verdict === 'suspicious' 
-                  ? 'border-[#c4842b] bg-[#fdfaf5] text-[#c4842b]' 
-                  : 'border-[#00c853] bg-[#e6f4ea] text-[#00c853]'
-              }`}>
-                <span className="material-symbols-outlined mr-2 text-[16px]">
-                  {analysis.verdict === 'fake' || analysis.verdict === 'suspicious' ? 'warning' : 'verified'}
-                </span>
-                {analysis.verdict || "UNKNOWN"}
-              </div>
+        <main className="flex-1 flex overflow-hidden bg-surface flex-col md:flex-row relative">
+          <AnimatePresence mode="wait">
+            {activeView === "archive" ? (
+              <motion.div 
+                key="archive"
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -10 }}
+                transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
+                className="w-full h-full"
+              >
+                <ArchiveView />
+              </motion.div>
+            ) : activeView === "dashboard" ? (
+              <motion.div 
+                key="dashboard"
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -10 }}
+                transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
+                className="w-full h-full"
+              >
+                <DashboardView />
+              </motion.div>
+            ) : activeView === "live_news" ? (
+              <motion.div 
+                key="live_news"
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -10 }}
+                transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
+                className="w-full h-full"
+              >
+                <LiveFeedView />
+              </motion.div>
+            ) : (
+              <motion.div 
+                key="results"
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -10 }}
+                transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
+                className="w-full h-full flex flex-col md:flex-row"
+              >
+                {/* Verification Sidebar */}
+              <section className="w-full md:w-80 flex flex-col h-full bg-[#f8f7f4] overflow-y-auto shrink-0 border-r-[1.5px] border-[#d4d4d4] dark:border-stone-700 dark:bg-surface-container-low">
+                <div className="p-6 md:p-8 space-y-8 flex-1">
+                  
+                  {/* REF NO */}
+                  <div className="border-b-[1.5px] border-[#d4d4d4] dark:border-stone-700 pb-3 flex justify-between items-center">
+                    <span className="font-label text-[9px] uppercase tracking-[0.2em] font-bold text-[#1c1b1b] dark:text-stone-100">
+                      REF NO. TR-{analysis.id ? String(parseInt(analysis.id.replace(/-/g, '').substring(0, 8), 16) % 1000).padStart(3, '0') : '001'}
+                    </span>
+                    {user && (
+                      <button onClick={handleBookmark} disabled={bookmarkLoading} className="text-[#1c1b1b] dark:text-stone-100 hover:text-primary transition-colors">
+                        <span className="material-symbols-outlined text-[16px]">{bookmarked ? 'bookmark_added' : 'bookmark_add'}</span>
+                      </button>
+                    )}
+                  </div>
 
-              {/* Badges */}
-              {(analysis.override_applied || analysis.text_only_formula || analysis.crosscheck_fallback || communityDisagrees || analysis.confidence_warning) && (
-                <div className="space-y-2 flex flex-col items-start">
-                  {analysis.override_applied && (
-                     <div className="inline-flex items-center px-3 py-1.5 border-[1px] border-[#7c4dff] bg-[#f3edfc] text-[#7c4dff] font-label text-[10px] tracking-[0.1em] uppercase font-bold rounded-full">
-                       <span className="material-symbols-outlined mr-2 text-[14px]">policy</span> OVERRIDE APPLIED
-                     </div>
-                  )}
-                  {analysis.text_only_formula && (
-                     <div className="inline-flex items-center px-3 py-1.5 border-[1px] border-[#444748] bg-[#f4f4f0] text-[#444748] font-label text-[10px] tracking-[0.1em] uppercase font-bold rounded-full">
-                       <span className="material-symbols-outlined mr-2 text-[14px]">description</span> TEXT-ONLY FORMULA
-                     </div>
-                  )}
-                  {analysis.crosscheck_fallback && (
-                     <div className="inline-flex items-center px-3 py-1.5 border-[1px] border-[#c4842b] bg-[#fdfaf5] text-[#c4842b] font-label text-[10px] tracking-[0.1em] uppercase font-bold rounded-full">
-                       <span className="material-symbols-outlined mr-2 text-[14px]">sync_problem</span> FALLBACK SEARCH
-                     </div>
-                  )}
-                  {communityDisagrees && (
-                     <div className="inline-flex items-center px-3 py-1.5 border-[1px] border-[#b7211f] bg-[#ffdad6] text-[#b7211f] font-label text-[10px] tracking-[0.1em] uppercase font-bold rounded-full">
-                       <span className="material-symbols-outlined mr-2 text-[14px]">group_off</span> COMMUNITY DISAGREES
-                     </div>
-                  )}
-                  {analysis.confidence_warning && (
-                     <div className="inline-flex items-center px-3 py-1.5 border-[1px] border-[#c4842b] bg-[#fdfaf5] text-[#c4842b] font-label text-[10px] tracking-[0.1em] uppercase font-bold rounded-full">
-                       <span className="material-symbols-outlined mr-2 text-[14px]">warning</span> LOW CONFIDENCE
-                     </div>
-                  )}
-                </div>
-              )}
-
-              {/* Signal Groups */}
-              <div>
-                <h4 className="font-label text-[10px] tracking-[0.15em] uppercase text-on-surface-variant mb-4 font-bold">SIGNAL GROUPS</h4>
-                <div className="space-y-3">
-                  {groups.content && (
-                    <GroupScoreBar 
-                      groupKey="content" 
-                      label="Content Intelligence" 
-                      score={groups.content.score} 
-                      subSignals={groups.content.sub_signals} 
-                    />
-                  )}
-                  {groups.source && (
-                    <GroupScoreBar 
-                      groupKey="source" 
-                      label="Source & Corroboration" 
-                      score={groups.source.score} 
-                      subSignals={groups.source.sub_signals} 
-                    />
-                  )}
-                  {groups.facts && (
-                    <GroupScoreBar 
-                      groupKey="facts" 
-                      label="Fact Verification" 
-                      score={groups.facts.score} 
-                      subSignals={groups.facts.sub_signals} 
-                    />
-                  )}
-                </div>
-              </div>
-
-              {/* Entity warning / Wikidata Status */}
-              {groups?.facts?.wikidata_status && groups.facts.wikidata_status !== "unverified" && (
-                <>
-                  <div className={`p-3 border-[0.5px] flex items-start ${
-                    groups.facts.wikidata_status === "contradicted" 
-                      ? 'border-secondary bg-secondary-fixed/10' 
-                      : 'border-[#00c853] bg-[#e6f4ea]'
+                  {/* Verdict */}
+                  <div className={`border-2 py-3 px-4 flex items-center justify-center space-x-2 ${
+                    analysis.verdict === 'fake' || analysis.verdict === 'suspicious' 
+                      ? 'border-[#b7211f] text-[#b7211f]' 
+                      : 'border-[#00c853] text-[#00c853]'
                   }`}>
-                    <span className={`font-headline font-bold mr-3 ${
-                      groups.facts.wikidata_status === "contradicted" ? 'text-secondary' : 'text-[#00c853]'
-                    }`}>W</span>
-                    <span className={`font-body text-sm ${
-                      groups.facts.wikidata_status === "contradicted" ? 'text-secondary' : 'text-[#00c853]'
-                    }`}>
-                      {groups.facts.wikidata_status === "contradicted" ? "Entity predicates contradicted by Wikidata" : "Entities confirmed by Wikidata"}
+                    <span className="material-symbols-outlined text-[16px] font-bold">
+                      {analysis.verdict === 'fake' || analysis.verdict === 'suspicious' ? 'warning' : 'verified'}
+                    </span>
+                    <span className="font-label text-[11px] uppercase tracking-[0.2em] font-black">
+                      VERDICT: {analysis.verdict || "UNKNOWN"}
                     </span>
                   </div>
-                  <div className="editorial-rule-thin"></div>
-                </>
-              )}
 
-              {/* Cross-Verification */}
-              <div>
-                <h4 className="font-label text-[10px] tracking-[0.15em] uppercase text-on-surface-variant mb-4 font-bold">CROSS-VERIFICATION</h4>
-                {analysis.crosscheck_sources && analysis.crosscheck_sources.length > 0 ? (
-                  <div className="space-y-2">
-                    {analysis.crosscheck_sources.map((s, i) => (
-                      <a key={i} href={s.url} target="_blank" rel="noopener noreferrer" className="block p-3 border-[0.5px] border-outline-variant bg-surface hover:bg-surface-container-highest transition-colors">
-                        <div className="font-label text-[10px] tracking-wide uppercase font-bold text-on-surface-variant mb-1">{s.name || s.domain}</div>
-                        <div className="font-body text-xs text-on-surface line-clamp-2">{s.title || s.url}</div>
-                      </a>
-                    ))}
-                  </div>
-                ) : (
-                  <div className="p-4 border-[0.5px] border-secondary/50 bg-secondary-fixed/5">
-                    <div className="flex items-center mb-2">
-                      <span className="material-symbols-outlined text-secondary mr-2 text-[18px]">search_off</span>
-                      <span className="font-label text-[10px] tracking-wide uppercase font-bold text-secondary">NO CORROBORATION FOUND</span>
+                  {/* Badges / Entity Warning */}
+                  {groups?.facts?.wikidata_status && groups.facts.wikidata_status !== "unverified" && (
+                    <div className="border-[1.5px] border-[#b7211f] p-4 flex flex-col items-center text-center bg-white dark:bg-stone-900 shadow-[2px_2px_0px_#b7211f]">
+                      <div className="flex items-center text-[#b7211f] mb-2">
+                         <span className="material-symbols-outlined text-[18px] mr-2 font-bold">priority_high</span>
+                         <span className="font-label text-[9px] font-black tracking-[0.15em] uppercase">CROSS-REFERENCE DISCREPANCY</span>
+                      </div>
+                      <p className="font-body text-[11px] leading-relaxed text-[#1c1b1b] dark:text-stone-300">
+                        {groups.facts.wikidata_status === "contradicted" ? "Entity predicates contradicted by Wikidata knowledge graph protocols." : "Entities confirmed by Wikidata."}
+                      </p>
                     </div>
-                    <p className="font-body text-xs text-secondary/80">No major outlets were found covering this claim.</p>
-                  </div>
-                )}
-              </div>
+                  )}
 
-              <div className="editorial-rule-thin"></div>
-
-              {/* Source Info */}
-              {analysis.source_domain && (
-                <>
+                  {/* FIG 1. SIGNAL ANALYSIS */}
                   <div>
-                    <h4 className="font-label text-[10px] tracking-[0.15em] uppercase text-on-surface-variant mb-4 font-bold">SOURCE INFO</h4>
-                    <a className="font-body text-sm text-primary underline decoration-outline-variant underline-offset-4" href={`https://${analysis.source_domain}`} target="_blank" rel="noopener noreferrer">
-                      {analysis.source_domain}
-                    </a>
-                    {analysis.source_info && !analysis.source_info.is_known && (
-                      <p className="font-body text-xs text-secondary mt-2">Unverified domain</p>
-                    )}
-                    {analysis.source_info && analysis.source_info.bias && analysis.source_info.bias !== "unknown" && (
-                      <p className="font-body text-xs text-on-surface-variant mt-2 capitalize">Bias: {analysis.source_info.bias}</p>
+                    <div className="border-b-[3px] border-[#1c1b1b] dark:border-stone-100 pb-2 mb-4">
+                      <span className="font-label text-[11px] uppercase tracking-[0.2em] font-black text-[#1c1b1b] dark:text-stone-100">FIG 1. SIGNAL ANALYSIS</span>
+                    </div>
+                    
+                    <div className="space-y-2 mt-4">
+                      {groups.content && (
+                        <GroupScoreBar 
+                          groupKey="content" 
+                          label="Content Intelligence" 
+                          score={groups.content.score} 
+                          subSignals={groups.content.sub_signals} 
+                        />
+                      )}
+                      {groups.source && (
+                        <GroupScoreBar 
+                          groupKey="source" 
+                          label="Source & Corroboration" 
+                          score={groups.source.score} 
+                          subSignals={groups.source.sub_signals} 
+                        />
+                      )}
+                      {groups.facts && (
+                        <GroupScoreBar 
+                          groupKey="facts" 
+                          label="Fact Verification" 
+                          score={groups.facts.score} 
+                          subSignals={groups.facts.sub_signals} 
+                        />
+                      )}
+                    </div>
+                  </div>
+
+                  {/* FIG 2. CROSS-VERIFICATION */}
+                  <div>
+                    <div className="border-b-[3px] border-[#1c1b1b] dark:border-stone-100 pb-2 mb-4">
+                      <span className="font-label text-[11px] uppercase tracking-[0.2em] font-black text-[#1c1b1b] dark:text-stone-100">FIG 2. CROSS-VERIFICATION</span>
+                    </div>
+
+                    {analysis.crosscheck_sources && analysis.crosscheck_sources.length > 0 ? (
+                      <div className="space-y-0">
+                        {analysis.crosscheck_sources.map((s, i) => (
+                          <a key={i} href={s.url} target="_blank" rel="noopener noreferrer" className="flex items-center justify-between border-b-[1.5px] border-[#d4d4d4] dark:border-stone-700 py-3 group hover:bg-[#1c1b1b]/5 dark:hover:bg-stone-800 transition-all px-2 -mx-2">
+                            <span className="font-serif text-[13px] uppercase font-bold text-[#1c1b1b] dark:text-stone-100 group-hover:text-primary transition-colors">{s.name || s.domain}</span>
+                            <span className="material-symbols-outlined text-[14px] text-[#1c1b1b] dark:text-stone-100 opacity-0 group-hover:opacity-100 -translate-x-1 translate-y-1 group-hover:translate-x-0 group-hover:translate-y-0 transition-all duration-300">arrow_outward</span>
+                          </a>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="border-[1.5px] border-[#1c1b1b] dark:border-stone-100 p-4 bg-white dark:bg-stone-900 shadow-[2px_2px_0px_#1c1b1b]">
+                        <span className="block font-label text-[9px] uppercase tracking-[0.15em] font-black text-[#b7211f] mb-3 text-center">NO CORROBORATION FOUND</span>
+                        <p className="font-body text-[11px] italic text-[#747878] leading-relaxed text-center">
+                          Extensive search of primary and secondary news registries yields zero matches for claim ID TR-{analysis.id ? String(parseInt(analysis.id.replace(/-/g, '').substring(0, 8), 16) % 1000).padStart(3, '0') : '001'}.
+                        </p>
+                      </div>
                     )}
                   </div>
-                  <div className="editorial-rule-thin"></div>
-                </>
-              )}
 
-              {/* Community Votes */}
-              <div>
-                <h4 className="font-label text-[10px] tracking-[0.15em] uppercase text-on-surface-variant mb-4 font-bold">COMMUNITY VOTES</h4>
-                <div className="flex space-x-4">
-                  <button onClick={() => handleVote("up")} className="flex items-center px-4 py-2 border-[0.5px] border-outline-variant bg-surface hover:bg-surface-container-highest transition-colors rounded-md">
-                    <span className="material-symbols-outlined text-[16px] mr-2 text-[#00c853]">thumb_up</span>
-                    <span className="font-headline text-sm font-bold">{votes.up}</span>
-                  </button>
-                  <button onClick={() => handleVote("down")} className="flex items-center px-4 py-2 border-[0.5px] border-outline-variant bg-surface hover:bg-surface-container-highest transition-colors rounded-md">
-                    <span className="material-symbols-outlined text-[16px] mr-2 text-secondary">thumb_down</span>
-                    <span className="font-headline text-sm font-bold">{votes.down}</span>
-                  </button>
+                  {/* Source Registry */}
+                  {analysis.source_domain && (
+                    <div className="pt-4 border-t-[1.5px] border-[#d4d4d4] dark:border-stone-700">
+                      <span className="block font-label text-[9px] uppercase tracking-[0.2em] font-black text-[#1c1b1b] dark:text-stone-100 mb-2">SOURCE REGISTRY</span>
+                      <a href={`https://${analysis.source_domain}`} target="_blank" rel="noopener noreferrer" className="font-serif text-[13px] font-bold text-[#1c1b1b] dark:text-stone-100 underline decoration-2 underline-offset-4 hover:text-primary transition-colors">
+                        {analysis.source_domain}
+                      </a>
+                    </div>
+                  )}
+
+                  {/* Peer Review */}
+                  <div className="pt-4 pb-12 md:pb-0">
+                    <span className="block font-label text-[9px] uppercase tracking-[0.2em] font-black text-[#1c1b1b] dark:text-stone-100 mb-4">PEER REVIEW</span>
+                    <div className="flex border-[2px] border-[#1c1b1b] dark:border-stone-100 shadow-[3px_3px_0px_#1c1b1b]">
+                      <button onClick={() => handleVote("up")} className="flex-1 flex justify-between items-center px-3 py-2 bg-[#1c1b1b] text-white hover:bg-black transition-colors border-r-[2px] border-[#1c1b1b]">
+                        <span className="font-label text-[9px] uppercase font-black tracking-widest">VERIFY</span>
+                        <span className="font-serif text-[14px] font-black">{votes.up}</span>
+                      </button>
+                      <button onClick={() => handleVote("down")} className="flex-1 flex justify-between items-center px-3 py-2 bg-white dark:bg-stone-900 text-[#1c1b1b] dark:text-stone-100 hover:bg-gray-100 transition-colors">
+                        <span className="font-label text-[9px] uppercase font-black tracking-widest">DEBUNK</span>
+                        <span className="font-serif text-[14px] font-black">{votes.down}</span>
+                      </button>
+                    </div>
+                  </div>
+
                 </div>
-              </div>
-            </div>
-          </section>
+              </section>
 
           {/* Main Analysis Content */}
-          <section className="flex-1 flex flex-col h-full overflow-y-auto bg-surface relative z-10 p-6 md:p-12">
+          <section className="flex-1 flex flex-col h-full overflow-y-auto bg-white dark:bg-stone-950 relative z-10 p-6 md:p-12 lg:px-24">
             <div className="max-w-4xl mx-auto w-full">
               
-              {/* Authenticity Gauge */}
-              <div className="flex justify-center mb-12">
-                <div className="relative w-56 h-28 overflow-hidden">
-                  <svg className="w-full h-full" viewBox="0 0 100 50">
-                    {/* Background Arc */}
-                    <path d="M 10 50 A 40 40 0 0 1 90 50" fill="none" stroke="#e9e8e4" strokeLinecap="round" strokeWidth="8"></path>
-                    {/* Foreground Arc */}
-                    <path 
-                      d="M 10 50 A 40 40 0 0 1 90 50" 
-                      fill="none" 
-                      stroke={analysis.score_final > 70 ? "#00c853" : analysis.score_final > 40 ? "#ffc107" : "#c4842b"} 
-                      strokeLinecap="round" 
-                      strokeWidth="8"
-                      strokeDasharray="125.6" 
-                      strokeDashoffset={125.6 - (125.6 * (analysis.score_final || 0)) / 100}
-                      style={{ transition: 'stroke-dashoffset 1s ease-in-out' }}
-                    ></path>
-                  </svg>
-                  <div className="absolute bottom-0 left-0 w-full text-center flex flex-col items-center">
-                    <span className={`font-headline text-5xl font-bold ${
-                      analysis.score_final > 70 ? "text-[#00c853]" : analysis.score_final > 40 ? "text-[#ffc107]" : "text-[#c4842b]"
-                    }`}>
-                      {analysis.score_final || 0}
-                    </span>
-                    <span className="font-label text-[8px] tracking-[0.2em] uppercase text-on-surface-variant mt-1">AUTHENTICITY SCORE</span>
+              {/* Brutalist Assessment Header */}
+              <div className="flex flex-col items-center mb-16 pt-4">
+                <span className="font-label text-[10px] tracking-[0.2em] uppercase font-black text-[#1c1b1b] dark:text-stone-100 mb-2">VERIFICATION ASSESSMENT: TR-{analysis.id ? String(parseInt(analysis.id.replace(/-/g, '').substring(0, 8), 16) % 1000).padStart(3, '0') : '001'}</span>
+                <div className="w-full max-w-sm border-t-[1px] border-b-[3px] border-[#1c1b1b] dark:border-stone-100 h-2 mb-8"></div>
+                
+                {/* Score Number */}
+                <span className="font-serif text-8xl md:text-[140px] leading-none font-black text-[#1c1b1b] dark:text-stone-100 mb-8 tracking-tighter">
+                  {analysis.score_final || 0}
+                </span>
+                
+                <span className="font-label text-[10px] tracking-[0.3em] uppercase font-black text-[#1c1b1b] dark:text-stone-100 mb-4">AUTHENTICITY SCORE</span>
+                
+                {/* Linear Scale Bar */}
+                <div className="w-full max-w-md flex items-center gap-4">
+                  <div className="flex flex-col items-end">
+                    <span className="font-serif text-[11px] font-bold text-[#1c1b1b] dark:text-stone-100">000</span>
+                    <span className="font-label text-[7px] uppercase tracking-[0.1em] text-[#747878] dark:text-stone-400">MIN</span>
+                  </div>
+                  <div className="flex-1 relative h-3 bg-[#e5e4df] dark:bg-stone-800 flex items-center">
+                    <div className="absolute left-0 top-0 bottom-0 bg-[#1c1b1b] dark:bg-stone-100" style={{ width: `${analysis.score_final || 0}%` }}></div>
+                    <div className="absolute top-[-4px] bottom-[-4px] w-[2px] bg-[#b7211f]" style={{ left: `${analysis.score_final || 0}%` }}></div>
+                  </div>
+                  <div className="flex flex-col items-start">
+                    <span className="font-serif text-[11px] font-bold text-[#1c1b1b] dark:text-stone-100">100</span>
+                    <span className="font-label text-[7px] uppercase tracking-[0.1em] text-[#747878] dark:text-stone-400">MAX</span>
                   </div>
                 </div>
               </div>
 
               {/* Headline */}
-              <h1 className="font-headline text-3xl md:text-4xl leading-tight font-bold text-primary mb-8">
+              <h1 className="font-serif text-4xl md:text-5xl leading-tight font-black text-[#1c1b1b] dark:text-stone-100 mb-12 tracking-tight">
                 {analysis.article_title || "Untitled Article"}
               </h1>
 
               {/* AI Explanation */}
-              <div className="border-[1px] border-primary rounded-xl p-6 mb-8 bg-surface shadow-ink-sm">
-                <h4 className="font-label text-[10px] tracking-[0.2em] uppercase font-bold text-primary mb-4">AI EXPLANATION</h4>
-                <p className="font-body text-base leading-relaxed text-on-surface">
+              <div className="border-[2px] border-[#1c1b1b] dark:border-stone-100 p-6 md:p-8 mb-12 bg-white dark:bg-stone-900 shadow-[4px_4px_0px_#1c1b1b]">
+                <h4 className="font-label text-[10px] tracking-[0.2em] uppercase font-black text-[#1c1b1b] dark:text-stone-100 mb-6">AI EXPLANATION</h4>
+                <p className="font-body text-[15px] md:text-base leading-[1.8] text-[#1c1b1b] dark:text-stone-300 text-justify">
                   {analysis.explanation || "No explanation available."}
                 </p>
               </div>
 
               {/* Actions */}
               {analysis.article_body && (
-                <div className="mb-12">
+                <div className="mb-16">
                   <button 
                     onClick={handleRewrite}
                     disabled={rewriteLoading}
-                    className="flex items-center px-4 py-2 border-[1px] border-outline-variant rounded-md hover:bg-surface-container-highest transition-colors font-body text-sm font-medium"
+                    className="flex items-center px-4 py-3 border-[1px] border-[#d4d4d4] dark:border-stone-700 bg-[#f8f7f4] dark:bg-stone-800 hover:bg-[#e5e4df] dark:hover:bg-stone-700 transition-colors rounded-none font-body text-xs font-medium text-[#1c1b1b] dark:text-stone-100"
                   >
                     {rewriteLoading ? (
                       <span className="material-symbols-outlined animate-spin mr-2 text-[16px]">sync</span>
@@ -649,10 +707,10 @@ export default function ResultsPage() {
               {/* Article Analysis */}
               {analysis.sentences && analysis.sentences.length > 0 && (
                 <div>
-                  <h4 className="font-label text-[10px] tracking-[0.2em] uppercase font-bold text-primary mb-6 flex items-center">
+                  <h4 className="font-label text-[10px] tracking-[0.2em] uppercase font-black text-[#1c1b1b] dark:text-stone-100 mb-8 flex items-center">
                     ARTICLE ANALYSIS 
-                    <span className="mx-3 text-outline-variant">—</span>
-                    <span className="text-on-surface-variant">CLICK ANY SENTENCE FOR DETAILS</span>
+                    <span className="mx-3 text-[#d4d4d4] dark:text-stone-700">—</span>
+                    <span className="text-[#747878] dark:text-stone-400">CLICK ANY SENTENCE FOR DETAILS</span>
                   </h4>
                   <div className="font-body text-lg leading-loose text-on-surface">
                     <SentenceHighlight sentences={analysis.sentences} />
@@ -661,21 +719,21 @@ export default function ResultsPage() {
               )}
             </div>
           </section>
-            </>
-          )}
+              </motion.div>
+            )}
+          </AnimatePresence>
         </main>
       </div>
 
       {/* Footer */}
       <footer className="bg-surface dark:bg-background text-primary dark:text-on-background docked full-width bottom-0 border-t-4 border-double border-primary dark:border-on-background flat no shadows flex justify-between items-center w-full px-8 py-4 max-w-full z-20">
-        <span className="font-display text-lg font-bold">TRUTHLENS</span>
-        <nav className="flex space-x-6">
-          <a className="text-on-surface-variant dark:text-tertiary-container font-label text-[8px] tracking-[0.15em] uppercase hover:text-primary dark:hover:text-on-background" href="#">PRIVACY POLICY</a>
-          <a className="text-on-surface-variant dark:text-tertiary-container font-label text-[8px] tracking-[0.15em] uppercase hover:text-primary dark:hover:text-on-background" href="#">METHODOLOGY</a>
-          <a className="text-on-surface-variant dark:text-tertiary-container font-label text-[8px] tracking-[0.15em] uppercase hover:text-primary dark:hover:text-on-background" href="#">DATA SOURCES</a>
-          <a className="text-on-surface-variant dark:text-tertiary-container font-label text-[8px] tracking-[0.15em] uppercase hover:text-primary dark:hover:text-on-background" href="#">CONTACT</a>
-        </nav>
-        <span className="font-label text-[8px] tracking-[0.15em] uppercase">© MMXXIV TRUTHLENS INVESTIGATIVE LEDGER. ALL RIGHTS RESERVED.</span>
+        <span className="font-display text-lg font-bold">VERIFICATION ENGINE</span>
+        <div className="flex space-x-6">
+          <span className="text-on-surface-variant dark:text-tertiary-container font-label text-[8px] tracking-[0.2em] uppercase">
+            SEPARATING SIGNAL FROM NOISE.
+          </span>
+        </div>
+        <span className="font-label text-[8px] tracking-[0.15em] uppercase">© TRUTHLENS OS. ALL RIGHTS RESERVED.</span>
       </footer>
 
       <AnimatePresence>
