@@ -169,41 +169,57 @@ def compute_fever_score(claim: str) -> dict:
         logger.error(f"FEVER search error: {e}")
         return {"score": 50, "top_match": None, "matches": [], "error": str(e)}
 
+    print(f"[FEVER] query='{claim}'")
+    for m in matches:
+        print(f"[FEVER] match='{m['claim']}' | label={m['label']} | similarity={m['similarity']:.4f}")
+
     if not matches:
         return {"score": 10, "top_match": None, "matches": []}
 
     top = matches[0]
+    sim = top["similarity"]
+    label = top["label"]
 
-    if top["similarity"] >= 0.85:
-        if top["label"] == "SUPPORTS":
+    if sim >= 0.85:
+        if label == "SUPPORTS":
             # High similarity + SUPPORTS → strong positive signal
             # Scale: 0.85 → 90, 1.0 → 95
-            score = min(95, round(90 + (top["similarity"] - 0.85) * 33))
-        elif top["label"] == "REFUTES":
+            score = min(95, round(90 + (sim - 0.85) * 33))
+        elif label == "REFUTES":
             # High similarity + REFUTES → strong negative signal
             # Scale: 0.85 → 15, 1.0 → 5
-            score = max(5, round(15 - (top["similarity"] - 0.85) * 67))
+            score = max(5, round(15 - (sim - 0.85) * 67))
         else:
-            # NOT ENOUGH INFO — penalize
-            score = 10
-    elif top["similarity"] >= 0.70:
+            # NOT ENOUGH INFO at very high similarity
+            # Claim exists in FEVER but wasn't verified — treat as weakly positive
+            if sim >= 0.95:
+                score = 65  # very close match — likely true, just not cited
+            elif sim >= 0.90:
+                score = 60  # close match — lean positive
+            else:
+                score = 55  # moderate match — slight positive lean
+
+    elif sim >= 0.70:
         # Moderate similarity — partial signal
-        if top["label"] == "SUPPORTS":
-            score = round(60 + (top["similarity"] - 0.70) * 200)  # 60–90
-        elif top["label"] == "REFUTES":
-            score = round(40 - (top["similarity"] - 0.70) * 167)  # 40–15
+        if label == "SUPPORTS":
+            score = round(60 + (sim - 0.70) * 200)  # 60–90
+        elif label == "REFUTES":
+            score = round(40 - (sim - 0.70) * 167)  # 40–15
         else:
-            score = 10
+            score = 50  # neutral
+
     else:
-        # Low similarity — claim not in FEVER, return penalty
-        score = 10
+        # Low similarity — neutral
+        score = 50
+
+    print(f"[FEVER] final score={score} | sim={sim:.4f} | label={label}")
 
     return {
         "score": max(0, min(100, score)),
         "top_match": {
             "claim": top["claim"],
             "label": top["label"],
-            "similarity": round(top["similarity"], 4),
+            "similarity": round(sim, 4),
         },
         "matches": [
             {

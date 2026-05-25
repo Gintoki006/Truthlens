@@ -116,7 +116,7 @@ def compute_ml_score(text: str) -> dict:
     """
     Compute the ML ensemble score from both models.
 
-    Ensemble: ml_score = (roberta × 0.60) + (lr × 0.40)
+    Ensemble: ml_score = (roberta × 0.75) + (lr × 0.25)
     Falls back to single-model score if one is unavailable.
 
     Returns:
@@ -127,7 +127,7 @@ def compute_ml_score(text: str) -> dict:
 
     # Ensemble or fallback
     if roberta_score is not None and lr_score is not None:
-        ensemble = round(roberta_score * 0.60 + lr_score * 0.40)
+        ensemble = round(roberta_score * 0.75 + lr_score * 0.25)
     elif roberta_score is not None:
         ensemble = roberta_score
     elif lr_score is not None:

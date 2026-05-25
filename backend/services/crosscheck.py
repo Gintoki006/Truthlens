@@ -173,18 +173,39 @@ async def crosscheck(headline: str, is_text_only: bool = False) -> dict:
 
             matches = [kw for kw in keywords if kw.lower() in searchable]
 
-            if not matches and keywords:
-                print(f"[CROSSCHECK] ❌ skipped {domain} — keyword mismatch | title='{title[:60]}'")
+            if len(matches) < 2 and keywords:
+                logger.info(f"[CROSSCHECK] ❌ skipped {domain} — only {len(matches)} keyword match (need 2)")
                 continue
 
             # NEW: Groq Semantic Relevance Check
             groq_result = await is_relevant_by_snippet(headline, title, snippet)
+            logger.info(f"[CROSSCHECK] {domain} — relevant={groq_result['relevant']} stance={groq_result['stance']}")
             if not groq_result["relevant"]:
                 print(f"[CROSSCHECK] ❌ skipped {domain} — Groq deemed irrelevant | title='{title[:60]}'")
                 continue
 
             stance = groq_result["stance"]
-            seen_domains.add(domain)  # mark domain as counted
+
+            if stance == "debunks":
+                logger.info(f"[CROSSCHECK] ⚠️ {domain} DEBUNKS this claim")
+                seen_domains.add(domain)
+                corroborating.append({
+                    "name": source.get("name", domain),
+                    "domain": domain,
+                    "url": r.get("link", ""),
+                    "trust_score": source["trust_score"],
+                    "stance": "debunks"
+                })
+                continue
+
+            elif stance == "neutral":
+                # Only count neutral if trust_score is very high
+                if source["trust_score"] < 85:
+                    logger.info(f"[CROSSCHECK] ➡️ skipping {domain} — neutral stance + trust < 85")
+                    continue
+
+            # stance == "supports" or high-trust neutral
+            seen_domains.add(domain)
             corroborating.append({
                 "name": source.get("name", domain),
                 "domain": domain,
@@ -193,10 +214,7 @@ async def crosscheck(headline: str, is_text_only: bool = False) -> dict:
                 "stance": stance
             })
 
-            if stance == "debunks":
-                print(f"[CROSSCHECK] ⚠️ {domain} DEBUNKS this claim — counting against")
-                continue
-            elif stance == "supports":
+            if stance == "supports":
                 print(f"[CROSSCHECK] ✅ {domain} SUPPORTS claim | matches={matches}")
             else:
                 print(f"[CROSSCHECK] ➡️ {domain} NEUTRAL on claim | matches={matches}")
@@ -255,7 +273,8 @@ async def crosscheck(headline: str, is_text_only: bool = False) -> dict:
                     searchable = (title + " " + snippet).lower()
                     matches    = [kw for kw in keywords if kw.lower() in searchable]
 
-                    if not matches and keywords:
+                    if len(matches) < 2 and keywords:
+                        logger.info(f"[CROSSCHECK] ❌ skipped {domain} (round {round_num}) — only {len(matches)} keyword match (need 2)")
                         continue
 
                     # NEW: Groq Semantic Relevance Check
@@ -265,6 +284,25 @@ async def crosscheck(headline: str, is_text_only: bool = False) -> dict:
                         continue
 
                     stance = groq_result["stance"]
+
+                    if stance == "debunks":
+                        print(f"[CROSSCHECK] ⚠️ {domain} DEBUNKS this claim (round {round_num})")
+                        seen_domains.add(domain)
+                        found_new = True
+                        corroborating.append({
+                            "name": source.get("name", domain),
+                            "domain": domain,
+                            "url": r.get("link", ""),
+                            "trust_score": source["trust_score"],
+                            "stance": "debunks"
+                        })
+                        continue
+
+                    elif stance == "neutral":
+                        if source.get("trust_score", 0) < 85:
+                            logger.info(f"[CROSSCHECK] ➡️ skipping {domain} (round {round_num}) — neutral stance + trust < 85")
+                            continue
+
                     seen_domains.add(domain)
                     found_new = True
                     corroborating.append({
@@ -275,10 +313,7 @@ async def crosscheck(headline: str, is_text_only: bool = False) -> dict:
                         "stance": stance
                     })
 
-                    if stance == "debunks":
-                        print(f"[CROSSCHECK] ⚠️ {domain} DEBUNKS this claim (round {round_num})")
-                        continue
-                    elif stance == "supports":
+                    if stance == "supports":
                         print(f"[CROSSCHECK] ✅ {domain} SUPPORTS claim (round {round_num}) | matches={matches}")
                     else:
                         print(f"[CROSSCHECK] ➡️ {domain} NEUTRAL on claim (round {round_num}) | matches={matches}")
@@ -327,16 +362,36 @@ async def crosscheck(headline: str, is_text_only: bool = False) -> dict:
                     searchable = (title + " " + snippet).lower()
                     matches    = [kw for kw in keywords if kw.lower() in searchable]
 
-                    if not matches and keywords:
+                    if len(matches) < 2 and keywords:
+                        logger.info(f"[CROSSCHECK] ❌ skipped {domain} (fallback) — only {len(matches)} keyword match (need 2)")
                         continue
                     
-                    # Groq Semantic Relevance Check
+                    # Second round relevance check
                     groq_result = await is_relevant_by_snippet(headline, title, snippet)
+                    logger.info(f"[CROSSCHECK] {domain} (R{round_num}) — relevant={groq_result['relevant']} stance={groq_result['stance']}")
                     if not groq_result["relevant"]:
                         print(f"[CROSSCHECK] ❌ skipped {domain} (fallback) — Groq deemed irrelevant | title='{title[:60]}'")
                         continue
 
                     stance = groq_result["stance"]
+
+                    if stance == "debunks":
+                        logger.info(f"[CROSSCHECK] ⚠️ {domain} DEBUNKS this claim (fallback)")
+                        seen_domains.add(domain)
+                        corroborating.append({
+                            "name": source.get("name", domain),
+                            "domain": domain,
+                            "url": r.get("link", ""),
+                            "trust_score": source["trust_score"],
+                            "stance": "debunks"
+                        })
+                        continue
+
+                    elif stance == "neutral":
+                        if source.get("trust_score", 0) < 85:
+                            logger.info(f"[CROSSCHECK] ➡️ skipping {domain} (fallback) — neutral stance + trust < 85")
+                            continue
+
                     seen_domains.add(domain)
                     corroborating.append({
                         "name": source.get("name", domain),
@@ -346,10 +401,7 @@ async def crosscheck(headline: str, is_text_only: bool = False) -> dict:
                         "stance": stance
                     })
 
-                    if stance == "debunks":
-                        print(f"[CROSSCHECK] ⚠️ {domain} DEBUNKS this claim (fallback)")
-                        continue
-                    elif stance == "supports":
+                    if stance == "supports":
                         print(f"[CROSSCHECK] ✅ {domain} SUPPORTS claim (fallback) | matches={matches}")
                     else:
                         print(f"[CROSSCHECK] ➡️ {domain} NEUTRAL on claim (fallback) | matches={matches}")

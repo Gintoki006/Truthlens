@@ -6,6 +6,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
+SERPER_URL = "https://google.serper.dev/search"
 
 async def groq_fact_check(claim: str) -> dict:
     """
@@ -15,17 +16,56 @@ async def groq_fact_check(claim: str) -> dict:
     
     Returns score 0-100, verdict, and specific fact corrections if wrong.
     """
+    SERPER_API_KEY = os.getenv("SERPER_API_KEY")
+    search_context = ""
+    print(f"\\n[!!! GROQ FACT CHECK SERPER !!!] SERPER_API_KEY Found: {bool(SERPER_API_KEY)}")
+    if SERPER_API_KEY:
+        try:
+            import re
+            # Extract first line and strip all punctuation/quotes to ensure Google finds broad matches
+            first_line = claim.split('\n')[0].strip()
+            clean_query = re.sub(r'[^\w\s]', '', first_line).strip()[:80]
+            
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                serper_resp = await client.post(
+                    SERPER_URL,
+                    headers={"X-API-KEY": SERPER_API_KEY, "Content-Type": "application/json"},
+                    json={"q": clean_query, "num": 5}
+                )
+                serper_resp.raise_for_status()
+                
+                snippets = []
+                for r in serper_resp.json().get("organic", [])[:5]:
+                    if r.get("snippet"):
+                        snippets.append(r["snippet"])
+                
+                if snippets:
+                    search_context = "\n".join(f"- {s}" for s in snippets)
+                    print(f"[!!! GROQ FACT CHECK SERPER !!!] Fetched {len(snippets)} snippets for query: '{clean_query}'")
+                    for i, s in enumerate(snippets):
+                        print(f"  Context {i+1}: {s[:100]}...")
+                else:
+                    print(f"[!!! GROQ FACT CHECK SERPER !!!] 0 snippets found for query: '{clean_query}'")
+                    
+        except Exception as e:
+            print(f"[!!! GROQ FACT CHECK SERPER !!!] Serper context fetch failed: {e}")
+
     prompt = f"""You are a precise fact-checker with extensive knowledge. 
 Verify the specific factual claims in this statement.
 
 Claim: "{claim}"
 
+{f"LIVE WEB CONTEXT:\\n{search_context}\\n\\nUse the live web context above to verify the claim (especially for recent news)." if search_context else ""}
+
 Instructions:
-- Check specific facts: dates, names, numbers, locations, scientific facts
-- If the claim contains multiple facts, evaluate each one
+- STEP 1: Carefully compare the LIVE WEB CONTEXT against the CLAIM.
+- STEP 2: Determine if the snippets describe the same core news event or explicitly support the claim.
+- STEP 3: If the snippets corroborate the core event/claim, score it highly (90-100) even if minor details from the claim are missing in the snippets. Do NOT penalize if the main event is verified.
+- Check specific facts: dates, names, numbers, locations, scientific facts.
 - Be precise — "Neil Armstrong landed on the Moon" is TRUE, "Neil Armstrong landed on Mars" is FALSE
-- Only state something is false if you are highly confident
-- If you are uncertain, say "unverifiable" not false
+- If the claim is a general news statement (e.g., "RBI maintains rates") and the context supports this occurring recently, score it 85-100. Do NOT mark it unverifiable just because it lacks a specific date.
+- Only state something is false if the context or your knowledge directly contradicts it.
+- If you are completely uncertain or the context is entirely irrelevant, say "unverifiable".
 
 Return ONLY raw JSON:
 {{
@@ -37,8 +77,8 @@ Return ONLY raw JSON:
 }}
 
 Scoring guide:
-- 85-100: Verified true — specific facts confirmed with high confidence
-- 65-84:  Mostly true — main facts correct, minor details uncertain
+- 85-100: Verified true — core facts strongly confirmed by knowledge or LIVE WEB CONTEXT
+- 65-84:  Mostly true — main facts correct, but some significant details contradict or are highly questionable
 - 45-64:  Unverifiable — cannot confirm or deny with confidence
 - 25-44:  Partially false — some facts wrong
 - 0-24:   False — specific facts directly contradict known reality

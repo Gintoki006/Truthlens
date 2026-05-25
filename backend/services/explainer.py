@@ -20,12 +20,9 @@ def generate_explanation(
     source_domain: str,
     verdict: str,
     final_score: int,
-    nlp_score: int,
-    source_score: int,
-    ml_score: int,
-    roberta_score: int | None,
-    lr_score: int | None,
-    source_info: dict,
+    content_score: int,
+    source_group_score: int,
+    facts_score: int | None,
     nlp_details: dict,
     crosscheck_score: int | None = None,
     corroborating_sources: list[dict] | None = None,
@@ -47,8 +44,11 @@ def generate_explanation(
     # Build fact verification context
     factcheck_text = _build_factcheck_text(factcheck_result)
 
-    # Build Source Context to avoid LLM hallucinating about missing domains
-    source_context = "No source domain — scored on content only" if not source_domain else f"Domain: {source_domain}, trust: {source_score}/100 (known: {source_info.get('is_known', False)}, category: {source_info.get('category', 'N/A')}, bias: {source_info.get('bias', 'N/A')})"
+    # Build Fact Verification Context
+    fact_context = f"- Fact Verification: {facts_score}/100" if facts_score is not None else "- Fact Verification: N/A (URL input)"
+
+    # Build Source Context
+    source_context = "No source domain — scored on crosscheck only" if not source_domain else f"Domain: {source_domain}"
 
     prompt = f"""You are a fact-checking assistant. Explain in 2-4 clear, plain-English sentences why this news article received its credibility verdict. Reference specific signals.
 
@@ -57,11 +57,10 @@ Final Score: {final_score}/100
 Verdict: {verdict}
 
 Signal Breakdown:
-- NLP Text Analysis: {nlp_score}/100 (sentiment: {nlp_details.get('sentiment_score', 'N/A')}, subjectivity: {nlp_details.get('subjectivity_score', 'N/A')}, clickbait: {nlp_details.get('clickbait_score', 'N/A')})
-- Source Credibility: {source_context}
-- ML Classification: {ml_score}/100 (RoBERTa: {roberta_score}, Logistic Regression: {lr_score})
+- Content Intelligence: {content_score}/100
+- Source Credibility: {source_group_score}/100 ({source_context})
 - Cross-Verification: {corroboration_text}
-- Fact Verification: {factcheck_text}
+{fact_context}
 
 Write a concise explanation. Do not use bullet points. Do not say "I" or mention yourself. Refer to the article in third person. If corroborating sources were found, mention the outlet names. If fact-checkers have verified this claim, mention their verdict. If the story was too recent to verify, mention that."""
 
@@ -96,10 +95,9 @@ Write a concise explanation. Do not use bullet points. Do not say "I" or mention
     except Exception as e:
         print(f"LLM explanation error: {e}")
         return _template_explanation(
-            article_title, source_domain, verdict, final_score,
-            nlp_score, source_score, ml_score, source_info, nlp_details,
-            crosscheck_score, corroborating_sources, crosscheck_fallback,
-            factcheck_result,
+            article_title, verdict, final_score,
+            content_score, source_group_score, facts_score,
+            crosscheck_score, corroborating_sources,
         )
 
 
@@ -163,10 +161,9 @@ def _build_factcheck_text(factcheck_result: dict | None) -> str:
 
 
 def _template_explanation(
-    article_title, source_domain, verdict, final_score,
-    nlp_score, source_score, ml_score, source_info, nlp_details,
-    crosscheck_score=None, corroborating_sources=None, crosscheck_fallback=False,
-    factcheck_result=None,
+    article_title, verdict, final_score,
+    content_score, source_score, facts_score,
+    crosscheck_score=None, corroborating_sources=None,
 ) -> str:
     """Generate a template-based explanation when no LLM is available."""
     parts = []

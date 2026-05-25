@@ -19,6 +19,9 @@ Verdict mapping:
 """
 
 import nltk
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 def compute_final_score(
@@ -45,38 +48,83 @@ def compute_final_score(
     groq_fact_score = groq_fact_result.get("score", 50)
     
     # ── 1. Calculate Group Scores ───────────────────────────────────────
-    content_score = round((nlp_score * 0.25) + (ml_score * 0.45) + (groq_news_score * 0.30))
-    source_score_group = round((source_score * 0.50) + ((crosscheck_score or 0) * 0.50))
-    
-    # Strict Fact Checking weights (no graceful degradation)
-    gfactcheck_score = factcheck_result.get("score_gfactcheck", 10)
-    wikidata_score = factcheck_result.get("score_wikidata", 10)
-    fever_score = factcheck_result.get("score_fever", 10)
-    facts_score = round(
-        (groq_fact_score * 0.50) +
-        (gfactcheck_score * 0.20) +
-        (wikidata_score * 0.20) +
-        (fever_score * 0.10)
-    )
+    # ── Fact Verification Signals ───────────────────────────────────────
+    # We retrieve these globally so override rules can still apply them if needed
+    gfactcheck_score = factcheck_result.get("score_gfactcheck", 50)
+    wikidata_score   = factcheck_result.get("score_wikidata",   50)
+    fever_score      = factcheck_result.get("score_fever",      50)
 
-    # ── 2. Formula Selection & Fusion ───────────────────────────────────
-    formula_used = "standard"
-    text_only_formula = False
+    # ── URL INPUT — only Content + Source ───────────────────────────────
 
-    if (input_type == "text" or not source_domain):
+    if input_type == "url" and source_domain:
+        text_only_formula = False
+
+        # Group A — Content Intelligence (all 4 signals)
+        content_score = round(
+            (nlp_score        * 0.20) +   # VADER + TextBlob + clickbait
+            (ml_roberta_score * 0.30) +   # RoBERTa directly
+            (ml_lr_score      * 0.15) +   # LR/TF-IDF directly
+            (groq_news_score  * 0.35)     # Groq credibility judgment
+        )
+
+        # Group B — Source & Corroboration (2 signals)
+        source_score_group = round(
+            (source_score            * 0.45) +  # Domain trust
+            ((crosscheck_score or 0) * 0.55)    # Crosscheck URLs
+        )
+
+        # Final fusion — Content + Source only, no facts
+        if serper_results_count == 0 and article_age_hours is not None and article_age_hours < 6:
+            final_score  = round((content_score * 0.65) + (source_score_group * 0.35))
+            formula_used = "url_serper_fallback"
+        else:
+            final_score  = round((content_score * 0.65) + (source_score_group * 0.35))
+            formula_used = "url_standard"
+
+        logger.info(
+            f"[SCORER] URL mode | formula={formula_used} | "
+            f"content={content_score} (nlp={nlp_score} roberta={ml_roberta_score} "
+            f"lr={ml_lr_score} groq={groq_news_score}) | "
+            f"source={source_score_group} (domain={source_score} crosscheck={crosscheck_score})"
+        )
+
+    # ── TEXT/CLAIM INPUT — Content + Source + Facts ──────────────────────
+
+    else:
         text_only_formula = True
+
+        # Group A — Content (same 4 signals)
+        content_score = round(
+            (nlp_score        * 0.20) +
+            (ml_roberta_score * 0.30) +
+            (ml_lr_score      * 0.15) +
+            (groq_news_score  * 0.35)
+        )
+
+        # Group B — Source (crosscheck only, no domain trust)
+        source_score_group = crosscheck_score or 0
+
+        # Group C — Fact Verification (4 signals)
+        facts_score = round(
+            (groq_fact_score  * 0.55) +
+            (wikidata_score   * 0.20) +
+            (fever_score      * 0.15) +
+            (gfactcheck_score * 0.10)
+        )
+
         if crosscheck_score is None:
-            final_score = round((content_score * 0.50) + (facts_score * 0.50))
+            final_score  = round((content_score * 0.60) + (facts_score * 0.40))
             formula_used = "text_only_fallback"
         else:
-            final_score = round((content_score * 0.45) + (crosscheck_score * 0.25) + (facts_score * 0.30))
+            final_score  = round((content_score * 0.50) + (source_score_group * 0.30) + (facts_score * 0.20))
             formula_used = "text_only"
-    elif serper_results_count == 0 and article_age_hours is not None and article_age_hours < 6:
-        final_score = round((content_score * 0.50) + (facts_score * 0.50))
-        formula_used = "serper_fallback"
-    else:
-        final_score = round((content_score * 0.40) + (source_score_group * 0.35) + (facts_score * 0.25))
-        formula_used = "standard"
+
+        logger.info(
+            f"[SCORER] TEXT mode | formula={formula_used} | "
+            f"content={content_score} | source={source_score_group} | facts={facts_score} | "
+            f"groq_fact={groq_fact_score} | wikidata={wikidata_score} | "
+            f"fever={fever_score} | gfactcheck={gfactcheck_score}"
+        )
 
     use_fallback = "fallback" in formula_used
 
@@ -88,33 +136,56 @@ def compute_final_score(
     gfact_verdict = gfact_details.get("verdict") or ""
     gfact_similarity = gfact_details.get("similarity", 0.0)
 
-    from services.google_factcheck import TRUTH_RATINGS, FALSE_RATINGS
+    # Groq News Check overrides
+    gn_score        = groq_news_result.get("score", 50)
+    gn_misinfo      = groq_news_result.get("misinformation_pattern", False)
+    gn_plausibility = groq_news_result.get("plausibility", "medium")
 
-    is_truth = any(k in gfact_verdict.lower() for k in TRUTH_RATINGS.keys())
-    is_false = any(k in gfact_verdict.lower() for k in FALSE_RATINGS.keys())
-
-    if is_truth and gfact_similarity >= 0.80:
-        if final_score < 75:
-            final_score = 75
-            override_applied = True
-            score_override_reason = "Fact check verified this claim"
-    elif is_false and gfact_similarity >= 0.80:
+    if gn_misinfo and gn_plausibility == "low" and gn_score <= 25:
         if final_score > 35:
-            final_score = 35
+            final_score = min(final_score, 35)
             override_applied = True
-            score_override_reason = "Fact check debunked this claim"
+            score_override_reason = "Groq News Check: Matches known misinformation/conspiracy pattern"
+            logger.info(f"[SCORER] Groq News override — capped at 35 (score={gn_score})")
+
+    elif not gn_misinfo and gn_plausibility == "high" and gn_score >= 80:
+        if final_score < 75:
+            final_score = max(final_score, 75)
+            override_applied = True
+            score_override_reason = "Groq News Check: Highly credible and factual"
+            logger.info(f"[SCORER] Groq News override — floored at 75 (score={gn_score})")
+
+    # Groq Fact Check overrides
+    groq_verdict    = groq_fact_result.get("verdict", "unverifiable")
+    groq_confidence = groq_fact_result.get("confidence", "low")
+    groq_score      = groq_fact_result.get("score", 50)
+
+    if groq_confidence == "high":
+        if groq_score <= 15:
+            # Groq is highly confident this is false
+            if final_score > 35:
+                final_score = min(final_score, 35)
+                override_applied = True
+                score_override_reason = "Groq fact check: claim is false with high confidence"
+                logger.info(f"[SCORER] Groq override — capped at 35 (groq_score={groq_score})")
+
+        elif groq_score >= 80:
+            # Groq is highly confident this is true
+            if final_score < 75:
+                final_score = max(final_score, 75)
+                override_applied = True
+                score_override_reason = "Groq fact check: claim is verified true with high confidence"
+                logger.info(f"[SCORER] Groq override — floored at 75 (groq_score={groq_score})")
 
     # Wikidata overrides
-    wd_score = wikidata_score
-    
-    if wd_score >= 90:
-        final_score = min(final_score + 10, 100)
+    if wikidata_score >= 75:
+        final_score = min(final_score + 5, 100)
         override_applied = True
-        score_override_reason = "Wikidata confirms entity predicates (+10)"
-    elif wd_score <= 20:
-        final_score = max(final_score - 15, 0)
+        score_override_reason = "Wikidata confirms entity predicates (+5)"
+    elif wikidata_score <= 25:
+        final_score = max(final_score - 8, 0)
         override_applied = True
-        score_override_reason = "Wikidata contradicts entity predicates (-15)"
+        score_override_reason = "Wikidata contradicts entity predicates (-8)"
 
     final_score = max(0, min(100, final_score))
 
@@ -130,6 +201,47 @@ def compute_final_score(
     if text_only_formula:
         source_score_group = crosscheck_score or 0
 
+    groups = {
+        "content": {
+            "score": content_score,
+            "sub_signals": {
+                "nlp":           nlp_score,
+                "roberta":       ml_roberta_score,
+                "lr_model":      ml_lr_score,
+                "groq_analysis": groq_news_score
+            }
+        },
+        "source": {
+            "score": source_score_group,
+            "sub_signals": {
+                "domain_trust": source_score,
+                "crosscheck":   crosscheck_score or 0
+            } if input_type == "url" and source_domain else {
+                "crosscheck":   crosscheck_score or 0
+            },
+            "corroborating_sources": crosscheck_sources or [],
+        }
+    }
+
+    # Only add facts group for text/claim input
+    if text_only_formula:
+        groups["facts"] = {
+            "score": facts_score,
+            "sub_signals": {
+                "groq_logic": groq_fact_score,
+                "wikidata":   wikidata_score,
+                "fever":      fever_score,
+                "factcheck":  gfactcheck_score
+            },
+            "factcheck_result": {
+                "rating": gfact_verdict if gfact_verdict else None,
+                "checker": gfact_details.get("source"),
+                "url": gfact_details.get("review_url"),
+                "similarity": gfact_similarity
+            },
+            "wikidata_status": "confirmed" if wikidata_score >= 75 else ("contradicted" if wikidata_score <= 25 else "unverified")
+        }
+
     return {
         "score": final_score,
         "verdict": verdict,
@@ -138,49 +250,7 @@ def compute_final_score(
         "crosscheck_fallback": use_fallback,
         "text_only_formula": text_only_formula,
         "formula_used": formula_used,
-        "groups": {
-            "content": {
-                "score": content_score,
-                "weight": 0.55 if text_only_formula else (0.50 if use_fallback else 0.40),
-                "sub_signals": {
-                    "nlp": nlp_score,
-                    "roberta": ml_roberta_score,
-                    "lr_model": ml_lr_score,
-                    "ml_ensemble": ml_score,
-                    "groq_analysis": groq_news_score
-                }
-            },
-            "source": {
-                "score": source_score_group,
-                "weight": 0.0 if use_fallback else (0.25 if text_only_formula else 0.40),
-                "sub_signals": {
-                    "crosscheck": crosscheck_score or 0
-                } if text_only_formula else {
-                    "domain_trust": source_score,
-                    "crosscheck": crosscheck_score or 0
-                },
-                "corroborating_sources": crosscheck_sources or [],
-                "fallback_applied": use_fallback,
-                "text_only": text_only_formula
-            },
-            "facts": {
-                "score": facts_score,
-                "weight": 0.20 if text_only_formula else (0.50 if use_fallback else 0.20),
-                "sub_signals": {
-                    "factcheck": factcheck_result.get("score_gfactcheck", 50),
-                    "wikidata": factcheck_result.get("score_wikidata", 50),
-                    "fever": factcheck_result.get("score_fever", 50),
-                    "groq_logic": groq_fact_score
-                },
-                "factcheck_result": {
-                    "rating": gfact_verdict if gfact_verdict else None,
-                    "checker": gfact_details.get("source"),
-                    "url": gfact_details.get("review_url"),
-                    "similarity": gfact_similarity
-                },
-                "wikidata_status": "confirmed" if wd_score >= 90 else ("contradicted" if wd_score <= 20 else "unverified")
-            }
-        }
+        "groups": groups
     }
 
 

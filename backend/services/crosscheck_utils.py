@@ -53,9 +53,9 @@ Return ONLY raw JSON:
 }}
 
 Rules for stance:
-- "supports": article confirms the claim is true
-- "debunks": article says the claim is false, a hoax, misinformation, conspiracy, or myth
-- "neutral": article reports on the topic without confirming or denying the claim
+- "supports": article explicitly confirms the claim is true or reports the exact same core event as fact.
+- "debunks": article EXPLICITLY states the claim is false, a hoax, misinformation, conspiracy, or myth. Do NOT output "debunks" just because the article reports different numbers or minor details; it must actively refute the claim.
+- "neutral": article reports on the topic without confirming or actively denying the claim.
 
 Examples:
 

@@ -154,18 +154,19 @@ export default function ResultsPage() {
   // Reconstruct groups if they were fetched flat from Supabase
   const groups = analysis.groups || {
     content: {
-      score: analysis.text_only_formula ? Math.round((analysis.score_nlp * (0.20/0.55)) + (analysis.score_ml * (0.35/0.55))) : Math.round((analysis.score_nlp * 0.40) + (analysis.score_ml * 0.60)),
-      weight: analysis.text_only_formula ? 0.55 : 0.40,
+      score: analysis.text_only_formula ? Math.round((analysis.score_nlp * (0.40)) + (analysis.score_ml * (0.60))) : Math.round((analysis.score_nlp * 0.31) + (analysis.score_ml * 0.69)),
+      weight: analysis.text_only_formula ? (analysis.crosscheck_fallback ? 0.60 : 0.50) : 0.65,
       sub_signals: {
         nlp: analysis.score_nlp || 0,
         roberta: analysis.score_roberta || 0,
         lr_model: analysis.score_lr || 0,
-        ml_ensemble: analysis.score_ml || 0
+        ml_ensemble: analysis.score_ml || 0,
+        ...(analysis.factcheck_details?.score_groq_news !== undefined ? { groq_analysis: analysis.factcheck_details.score_groq_news } : {})
       }
     },
     source: {
-      score: analysis.text_only_formula ? (analysis.score_crosscheck || 0) : Math.round((analysis.score_source * 0.50) + ((analysis.score_crosscheck || 0) * 0.50)),
-      weight: analysis.text_only_formula ? 0.25 : 0.40,
+      score: analysis.text_only_formula ? (analysis.score_crosscheck || 0) : Math.round((analysis.score_source * 0.45) + ((analysis.score_crosscheck || 0) * 0.55)),
+      weight: analysis.text_only_formula ? (analysis.crosscheck_fallback ? 0 : 0.30) : 0.35,
       sub_signals: analysis.text_only_formula ? {
         crosscheck: analysis.score_crosscheck || 0
       } : {
@@ -178,7 +179,8 @@ export default function ResultsPage() {
       sub_signals: {
         factcheck: analysis.score_gfactcheck || 50,
         wikidata: analysis.score_wikidata || 50,
-        fever: analysis.score_fever || 50
+        fever: analysis.score_fever || 50,
+        ...(analysis.factcheck_details?.score_groq_fact !== undefined ? { groq_logic: analysis.factcheck_details.score_groq_fact } : {})
       },
       factcheck_result: {
         rating: analysis.factcheck_details?.gfactcheck?.verdict || null,

@@ -126,13 +126,21 @@ async def analyze(request: AnalyzeRequest):
     source_future = loop.run_in_executor(executor, compute_source_score, source_domain, authors)
     ml_future = loop.run_in_executor(executor, compute_ml_score, article_body)
     crosscheck_future = asyncio.create_task(crosscheck(article_title or article_body[:120], input_type == "text"))
-    factcheck_future = loop.run_in_executor(executor, compute_fact_score, article_body[:500])
     groq_news_future = asyncio.create_task(groq_news_check(article_title or article_body[:500]))
-    groq_fact_future = asyncio.create_task(groq_fact_check(article_title or article_body[:500]))
 
-    nlp_result, source_result, ml_result, crosscheck_result, factcheck_result, groq_news_result, groq_fact_result = await asyncio.gather(
-        nlp_future, source_future, ml_future, crosscheck_future, factcheck_future, groq_news_future, groq_fact_future
-    )
+    if input_type == "text":
+        factcheck_future = loop.run_in_executor(executor, compute_fact_score, article_body[:500])
+        groq_fact_future = asyncio.create_task(groq_fact_check(article_title or article_body[:500]))
+        
+        nlp_result, source_result, ml_result, crosscheck_result, factcheck_result, groq_news_result, groq_fact_result = await asyncio.gather(
+            nlp_future, source_future, ml_future, crosscheck_future, factcheck_future, groq_news_future, groq_fact_future
+        )
+    else:
+        nlp_result, source_result, ml_result, crosscheck_result, groq_news_result = await asyncio.gather(
+            nlp_future, source_future, ml_future, crosscheck_future, groq_news_future
+        )
+        factcheck_result = {}
+        groq_fact_result = {}
 
     # ── Step 3: Fuse scores ─────────────────────────────────────────────
     from services.scorer import compute_final_score, score_sentences
@@ -168,12 +176,9 @@ async def analyze(request: AnalyzeRequest):
         source_domain or "N/A",
         final["verdict"],
         final["score"],
-        nlp_result["score"],
-        source_result["score"],
-        ml_result["score"],
-        ml_result["roberta_score"],
-        ml_result["lr_score"],
-        source_result,
+        final["groups"]["content"]["score"],
+        final["groups"]["source"]["score"],
+        final["groups"].get("facts", {}).get("score"),
         nlp_result,
         crosscheck_result["crosscheck_score"],
         crosscheck_result["corroborating_sources"],
@@ -201,7 +206,7 @@ async def analyze(request: AnalyzeRequest):
             "score_roberta": ml_result["roberta_score"],
             "score_lr": ml_result["lr_score"],
             "score_crosscheck": crosscheck_result["crosscheck_score"],
-            "score_factcheck": factcheck_result["score"],
+            "score_factcheck": final.get("groups", {}).get("facts", {}).get("score"),
             "score_fever": factcheck_result.get("score_fever"),
             "score_gfactcheck": factcheck_result.get("score_gfactcheck"),
             "score_wikidata": factcheck_result.get("score_wikidata"),
@@ -250,7 +255,7 @@ async def analyze(request: AnalyzeRequest):
         score_roberta=ml_result["roberta_score"],
         score_lr=ml_result["lr_score"],
         score_crosscheck=crosscheck_result["crosscheck_score"],
-        score_factcheck=factcheck_result["score"],
+        score_factcheck=final.get("groups", {}).get("facts", {}).get("score"),
         score_fever=factcheck_result.get("score_fever"),
         score_gfactcheck=factcheck_result.get("score_gfactcheck"),
         score_wikidata=factcheck_result.get("score_wikidata"),

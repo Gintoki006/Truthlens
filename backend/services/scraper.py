@@ -5,7 +5,7 @@ Extracts title, body text, authors, and source domain from a URL.
 
 from urllib.parse import urlparse
 
-from newspaper import Article
+from newspaper import Article, Config
 
 
 def scrape_article(url: str) -> dict:
@@ -16,7 +16,10 @@ def scrape_article(url: str) -> dict:
         dict with keys: title, body, authors, source_domain, success, error
     """
     try:
-        article = Article(url)
+        config = Config()
+        config.browser_user_agent = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+        
+        article = Article(url, config=config)
         article.download()
         article.parse()
 
