@@ -12,7 +12,7 @@ from datetime import datetime, timezone
 from concurrent.futures import ThreadPoolExecutor
 from urllib.parse import urlparse
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
 router = APIRouter()
@@ -61,23 +61,75 @@ class AnalyzeResponse(BaseModel):
     override_applied: bool | None = None
     score_override_reason: str | None = None
     groups: dict = {}
+    image_url: str | None = None
+    ocr_text: str | None = None
+    visual_flags: dict = {}
 
 
 @router.post("/analyze", response_model=AnalyzeResponse)
-async def analyze(request: AnalyzeRequest):
-    """Run full multi-signal analysis on an article."""
-    if not request.url and not request.text:
-        raise HTTPException(status_code=400, detail="Provide either a URL or text to analyze.")
+async def analyze(request: Request):
+    """Run full multi-signal analysis on an article or image."""
+    content_type = request.headers.get("content-type", "")
+    
+    req_url = None
+    req_text = None
+    req_user_id = None
+    image_bytes = None
+    image_filename = None
+    
+    if "application/json" in content_type:
+        data = await request.json()
+        req_url = data.get("url")
+        req_text = data.get("text")
+        req_user_id = data.get("user_id")
+    elif "multipart/form-data" in content_type or "application/x-www-form-urlencoded" in content_type:
+        form = await request.form()
+        req_url = form.get("url")
+        req_text = form.get("text")
+        req_user_id = form.get("user_id")
+        image = form.get("image")
+        if image and hasattr(image, "filename") and image.filename:
+            image_bytes = await image.read()
+            image_filename = image.filename
+
+    if not req_url and not req_text and not image_bytes:
+        raise HTTPException(status_code=400, detail="Provide either a URL, text, or image to analyze.")
 
     loop = asyncio.get_event_loop()
 
     # ── Step 1: Get article content ─────────────────────────────────────
     publish_date = None
+    image_url = None
+    ocr_text = None
+    visual_flags = {}
 
-    if request.url:
+    if image_bytes:
+        from services.vision import analyze_image
+        from services.storage import upload_image_to_storage
+        
+        input_type = "image"
+        # Run vision and storage concurrently
+        image_url_task = asyncio.create_task(upload_image_to_storage(image_bytes, image_filename))
+        vision_task = asyncio.create_task(analyze_image(image_bytes, image_filename))
+        
+        image_url, vision_result = await asyncio.gather(image_url_task, vision_task)
+        
+        ocr_text = vision_result.get("extracted_text", "")
+        visual_flags = vision_result
+        
+        claims = vision_result.get("main_claims", [])
+        article_body = " ".join(claims) if claims else ocr_text
+        article_title = "Screenshot Analysis"
+        source_domain = None
+        authors = []
+        
+        if not article_body or len(article_body) < 10:
+            raise HTTPException(status_code=422, detail="Could not extract sufficient text or claims from the image.")
+            
+    elif req_url:
         from services.scraper import scrape_article
 
-        scraped = await loop.run_in_executor(executor, scrape_article, request.url)
+        scraped = await loop.run_in_executor(executor, scrape_article, req_url)
         if not scraped["success"]:
             raise HTTPException(status_code=422, detail=scraped["error"])
 
@@ -94,11 +146,11 @@ async def analyze(request: AnalyzeRequest):
                 detail="Could not extract enough text from this URL. Try pasting the article text directly.",
             )
     else:
-        if len(request.text) < 20:
+        if len(req_text) < 20:
             raise HTTPException(status_code=400, detail="Text must be at least 20 characters.")
 
-        article_title = request.text[:100] + ("..." if len(request.text) > 100 else "")
-        article_body = request.text
+        article_title = req_text[:100] + ("..." if len(req_text) > 100 else "")
+        article_body = req_text
         source_domain = None
         authors = []
         input_type = "text"
@@ -221,7 +273,7 @@ async def analyze(request: AnalyzeRequest):
 
         row = {
             "input_type": input_type,
-            "raw_input": request.url or request.text,
+            "raw_input": req_url or req_text or (image_filename if image_bytes else None),
             "original_language": original_language,
             "original_text": original_text[:10000] if original_text else None,
             "was_translated": was_translated,
@@ -258,10 +310,13 @@ async def analyze(request: AnalyzeRequest):
             "text_only_formula": final.get("text_only_formula", False),
             "explanation": explanation,
             "sentences": sentences,
+            "image_url": image_url,
+            "ocr_text": ocr_text,
+            "visual_flags": visual_flags,
         }
 
-        if request.user_id:
-            row["user_id"] = request.user_id
+        if req_user_id:
+            row["user_id"] = req_user_id
 
         result = supabase.table("analysis").insert(row).execute()
         if result.data:
@@ -314,4 +369,7 @@ async def analyze(request: AnalyzeRequest):
         sentences=sentences,
         source_info=source_result,
         nlp_details=nlp_result,
+        image_url=image_url,
+        ocr_text=ocr_text,
+        visual_flags=visual_flags,
     )
