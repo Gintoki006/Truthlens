@@ -61,6 +61,7 @@ Instructions:
 - STEP 1: Carefully compare the LIVE WEB CONTEXT against the CLAIM.
 - STEP 2: Determine if the snippets describe the same core news event or explicitly support the claim.
 - STEP 3: If the snippets corroborate the core event/claim, score it highly (90-100) even if minor details from the claim are missing in the snippets. Do NOT penalize if the main event is verified.
+- CRITICAL: If the Claim describes a "viral message", "social media post", or "rumor", DO NOT verify the mere existence of the message. You MUST verify the UNDERLYING factual claim being spread. If the underlying claim is false (e.g., "5G towers cause illness"), score it 0-24 even if the message itself truly went viral.
 - Check specific facts: dates, names, numbers, locations, scientific facts.
 - Be precise — "Neil Armstrong landed on the Moon" is TRUE, "Neil Armstrong landed on Mars" is FALSE
 - If the claim is a general news statement (e.g., "RBI maintains rates") and the context supports this occurring recently, score it 85-100. Do NOT mark it unverifiable just because it lacks a specific date.

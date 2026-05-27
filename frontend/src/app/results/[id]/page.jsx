@@ -16,6 +16,7 @@ import OverrideBadge from "@/components/ui/OverrideBadge";
 import FactCheckBadge from "@/components/ui/FactCheckBadge";
 import WikidataBadge from "@/components/ui/WikidataBadge";
 import TextOnlyBadge from "@/components/ui/TextOnlyBadge";
+import TranslationBadge from "@/components/ui/TranslationBadge";
 import DashboardView from "@/components/ui/DashboardView";
 import ArchiveView from "@/components/ui/ArchiveView";
 import LiveFeedView from "@/components/ui/LiveFeedView";
@@ -37,6 +38,7 @@ export default function ResultsPage() {
   const [activeView, setActiveView] = useState(searchParams.get("view") || "results");
   const [isAnalyzeModalOpen, setIsAnalyzeModalOpen] = useState(false);
   const [isSidebarExpanded, setIsSidebarExpanded] = useState(true);
+  const [showOriginalText, setShowOriginalText] = useState(false);
 
   useEffect(() => {
     const view = searchParams.get("view");
@@ -540,6 +542,11 @@ export default function ResultsPage() {
                     </div>
                   )}
 
+                  {/* Translation Badge */}
+                  {analysis.was_translated && (
+                    <TranslationBadge originalLanguage={analysis.original_language} />
+                  )}
+
                   {/* FIG 1. SIGNAL ANALYSIS */}
                   <div>
                     <div className="border-b-[3px] border-[#1c1b1b] dark:border-stone-100 pb-2 mb-4">
@@ -726,18 +733,41 @@ export default function ResultsPage() {
               )}
 
               {/* Article Analysis */}
-              {analysis.sentences && analysis.sentences.length > 0 && (
+              {(analysis.sentences && analysis.sentences.length > 0) || (analysis.was_translated && analysis.original_text) ? (
                 <div>
-                  <h4 className="font-label text-[10px] tracking-[0.2em] uppercase font-black text-[#1c1b1b] dark:text-stone-100 mb-8 flex items-center">
-                    ARTICLE ANALYSIS 
-                    <span className="mx-3 text-[#d4d4d4] dark:text-stone-700">—</span>
-                    <span className="text-[#747878] dark:text-stone-400">CLICK ANY SENTENCE FOR DETAILS</span>
-                  </h4>
+                  <div className="flex flex-col md:flex-row md:items-center justify-between mb-8 gap-4 border-b-[1px] border-[#d4d4d4] dark:border-stone-700 pb-4">
+                    <h4 className="font-label text-[10px] tracking-[0.2em] uppercase font-black text-[#1c1b1b] dark:text-stone-100 flex items-center">
+                      {showOriginalText ? "ORIGINAL TEXT" : "ARTICLE ANALYSIS"}
+                      {!showOriginalText && (
+                        <>
+                          <span className="mx-3 text-[#d4d4d4] dark:text-stone-700">—</span>
+                          <span className="text-[#747878] dark:text-stone-400 hidden md:inline">CLICK ANY SENTENCE FOR DETAILS</span>
+                        </>
+                      )}
+                    </h4>
+                    
+                    {analysis.was_translated && analysis.original_text && (
+                      <button 
+                        onClick={() => setShowOriginalText(!showOriginalText)}
+                        className="flex items-center px-3 py-1.5 border-[1px] border-indigo-200 bg-indigo-50 dark:bg-indigo-950/50 hover:bg-indigo-100 dark:hover:bg-indigo-900 transition-colors font-label text-[9px] font-bold uppercase tracking-widest text-indigo-800 dark:text-indigo-200 shrink-0"
+                      >
+                        <span className="material-symbols-outlined mr-1.5 text-[14px]">translate</span>
+                        {showOriginalText ? "Show Translated Analysis" : "Show Original Text"}
+                      </button>
+                    )}
+                  </div>
+                  
                   <div className="font-body text-lg leading-loose text-on-surface">
-                    <SentenceHighlight sentences={analysis.sentences} />
+                    {showOriginalText ? (
+                      <div className="whitespace-pre-wrap text-[15px] md:text-base leading-relaxed text-[#1c1b1b] dark:text-stone-300">
+                        {analysis.original_text}
+                      </div>
+                    ) : (
+                      analysis.sentences && analysis.sentences.length > 0 && <SentenceHighlight sentences={analysis.sentences} />
+                    )}
                   </div>
                 </div>
-              )}
+              ) : null}
             </div>
           </section>
               </motion.div>

@@ -1,5 +1,6 @@
 import logging
-from transformers import pipeline
+import textwrap
+from transformers import AutoModelForSeq2SeqLM, AutoTokenizer
 
 logger = logging.getLogger(__name__)
 
@@ -53,17 +54,16 @@ ISO_TO_DISPLAY_NAME = {
 
 # Load the translation pipeline at module level (singleton cache)
 # This will be loaded when the module is imported.
-logger.info("Initializing NLLB-200 translation pipeline. This may take a moment...")
+logger.info("Initializing NLLB-200 translation model. This may take a moment...")
 try:
-    translation_pipeline = pipeline(
-        "translation",
-        model="facebook/nllb-200-distilled-600M",
-        device="cpu"
-    )
-    logger.info("NLLB-200 translation pipeline initialized successfully.")
+    model_name = "facebook/nllb-200-distilled-600M"
+    tokenizer = AutoTokenizer.from_pretrained(model_name)
+    model = AutoModelForSeq2SeqLM.from_pretrained(model_name)
+    logger.info("NLLB-200 translation model initialized successfully.")
 except Exception as e:
-    logger.error(f"Failed to initialize NLLB-200 translation pipeline: {e}")
-    translation_pipeline = None
+    logger.error(f"Failed to initialize NLLB-200 translation model: {e}")
+    tokenizer = None
+    model = None
 
 
 def translate_to_english(text: str, source_lang: str) -> str:
@@ -71,8 +71,8 @@ def translate_to_english(text: str, source_lang: str) -> str:
     Translates the given text to English using NLLB-200.
     Expects source_lang as ISO 639-1 code (e.g. 'bn', 'hi').
     """
-    if not translation_pipeline:
-        logger.error("Translation pipeline is not initialized. Returning original text.")
+    if not model or not tokenizer:
+        logger.error("Translation model is not initialized. Returning original text.")
         return text
 
     nllb_token = ISO_TO_NLLB.get(source_lang)
@@ -81,14 +81,29 @@ def translate_to_english(text: str, source_lang: str) -> str:
         return text
 
     try:
-        # Perform translation
-        result = translation_pipeline(
-            text,
-            src_lang=nllb_token,
-            tgt_lang="eng_Latn",
-            max_length=1024
-        )
-        return result[0]['translation_text']
+        tokenizer.src_lang = nllb_token
+        forced_bos = tokenizer.convert_tokens_to_ids("eng_Latn")
+
+        # Chunk the text to avoid max length issues.
+        # NLLB handles ~1024 tokens. We'll chunk by ~800 characters to be safe.
+        chunks = textwrap.wrap(text, width=800, replace_whitespace=False, drop_whitespace=False, break_long_words=False)
+        if not chunks:
+            chunks = [text]
+
+        translated_chunks = []
+        for chunk in chunks:
+            inputs = tokenizer(chunk, return_tensors="pt")
+            
+            # Use max_new_tokens to prevent the generation from stopping too early
+            generated = model.generate(
+                **inputs, 
+                forced_bos_token_id=forced_bos,
+                max_new_tokens=512
+            )
+            translated = tokenizer.batch_decode(generated, skip_special_tokens=True)[0]
+            translated_chunks.append(translated)
+            
+        return ' '.join(translated_chunks)
     except Exception as e:
         logger.error(f"Translation failed for text (lang={source_lang}): {e}")
         return text

@@ -128,6 +128,14 @@ async def analyze(request: AnalyzeRequest):
         lang = detect_language(article_body)
         if lang != "en":
             article_body = translate_to_english(article_body, source_lang=lang)
+            
+            # If text input, re-derive title from the translated English text
+            if input_type == "text":
+                article_title = article_body[:100] + ("..." if len(article_body) > 100 else "")
+            # If URL input, translate the extracted headline
+            elif article_title:
+                article_title = translate_to_english(article_title, source_lang=lang)
+                
             original_language = lang
             was_translated = True
 

@@ -178,3 +178,12 @@ CREATE POLICY "Public read feed_items"
 
 -- Enable Realtime on feed_item table
 ALTER PUBLICATION supabase_realtime ADD TABLE feed_item;
+
+
+-- ============================================================================
+-- Migration: Add Multilingual Support columns (Phase 13)
+-- ============================================================================
+
+ALTER TABLE analysis ADD COLUMN IF NOT EXISTS original_language TEXT;
+ALTER TABLE analysis ADD COLUMN IF NOT EXISTS original_text TEXT;
+ALTER TABLE analysis ADD COLUMN IF NOT EXISTS was_translated BOOLEAN DEFAULT FALSE;

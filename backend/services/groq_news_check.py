@@ -30,6 +30,8 @@ Evaluate this claim on the following criteria and return a credibility score:
    (microchips in vaccines, faked moon landing, 5G causing disease, etc.)
 5. SATIRE / PARODY — Is this clearly a satirical article (like The Onion or Babylon Bee) or a parody of real news?
 
+CRITICAL: If the Claim describes a "viral message", "social media post", or "rumor", DO NOT evaluate the mere existence of the message. You MUST evaluate the UNDERLYING claim being spread. If the underlying claim is a known conspiracy or false (e.g., "5G towers cause illness"), score it 0-24 even if the message itself truly went viral.
+
 Scoring guide:
 - 85-100: Highly credible — factual tone, plausible, matches known reality
 - 65-84:  Mostly credible — minor issues with tone or minor unverifiable claims  

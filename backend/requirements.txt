@@ -14,6 +14,7 @@ nltk>=3.9.1
 textblob>=0.18.0
 vaderSentiment>=3.3.2
 langdetect>=1.0.9
+sentencepiece>=0.2.0
 
 
 # Article scraping
