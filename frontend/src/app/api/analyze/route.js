@@ -14,16 +14,26 @@ if (FASTAPI_URL && !FASTAPI_URL.startsWith("http")) {
  */
 export async function POST(request) {
   try {
-    const body = await request.json();
-
     const targetUrl = `${FASTAPI_URL}/api/analyze`;
     console.log("Proxying request to:", targetUrl);
+    
+    const contentType = request.headers.get("content-type") || "";
+    let res;
 
-    const res = await fetch(targetUrl, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
+    if (contentType.includes("multipart/form-data")) {
+      const formData = await request.formData();
+      res = await fetch(targetUrl, {
+        method: "POST",
+        body: formData,
+      });
+    } else {
+      const body = await request.json();
+      res = await fetch(targetUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+    }
 
     const data = await res.json();
 

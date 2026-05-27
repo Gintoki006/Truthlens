@@ -21,6 +21,9 @@ import DashboardView from "@/components/ui/DashboardView";
 import ArchiveView from "@/components/ui/ArchiveView";
 import LiveFeedView from "@/components/ui/LiveFeedView";
 import AnalyzeForm from "@/components/forms/AnalyzeForm";
+import ExtractedClaimsPanel from "@/components/ui/ExtractedClaimsPanel";
+import VisualFlagsPanel from "@/components/ui/VisualFlagsPanel";
+import ManipulationRadar from "@/components/ui/ManipulationRadar";
 import { motion, AnimatePresence } from "framer-motion";
 
 export default function ResultsPage() {
@@ -547,6 +550,19 @@ export default function ResultsPage() {
                     <TranslationBadge originalLanguage={analysis.original_language} />
                   )}
 
+                  {/* Image Analysis Sidebar Panels */}
+                  {analysis.input_type === "image" && (
+                    <div className="space-y-6 mb-8 border-b-[1.5px] border-[#d4d4d4] dark:border-stone-700 pb-8">
+                      <ManipulationRadar 
+                        emotionalTone={analysis.visual_flags?.emotional_tone} 
+                        tactics={analysis.visual_flags?.manipulation_tactics} 
+                      />
+                      <VisualFlagsPanel 
+                        flags={analysis.visual_flags?.credibility_red_flags} 
+                      />
+                    </div>
+                  )}
+
                   {/* FIG 1. SIGNAL ANALYSIS */}
                   <div>
                     <div className="border-b-[3px] border-[#1c1b1b] dark:border-stone-100 pb-2 mb-4">
@@ -687,6 +703,22 @@ export default function ResultsPage() {
                   </div>
                 </div>
               </div>
+
+              {/* Image Preview & Claims */}
+              {analysis.input_type === "image" && (
+                <div className="mb-12">
+                  {analysis.image_url && (
+                    <div className="border-[3px] border-[#1c1b1b] dark:border-stone-100 p-2 bg-white dark:bg-stone-900 shadow-[6px_6px_0px_#1c1b1b] mb-12 w-full mx-auto">
+                      <img src={analysis.image_url} alt="Analyzed screenshot" className="w-full h-auto object-contain max-h-[600px]" />
+                    </div>
+                  )}
+                  <ExtractedClaimsPanel 
+                    ocrText={analysis.ocr_text} 
+                    mainClaims={analysis.visual_flags?.main_claims} 
+                    entities={analysis.visual_flags?.entities} 
+                  />
+                </div>
+              )}
 
               {/* Headline */}
               <h1 className="font-serif text-4xl md:text-5xl leading-tight font-black text-[#1c1b1b] dark:text-stone-100 mb-12 tracking-tight">

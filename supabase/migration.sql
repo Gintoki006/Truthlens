@@ -187,3 +187,15 @@ ALTER PUBLICATION supabase_realtime ADD TABLE feed_item;
 ALTER TABLE analysis ADD COLUMN IF NOT EXISTS original_language TEXT;
 ALTER TABLE analysis ADD COLUMN IF NOT EXISTS original_text TEXT;
 ALTER TABLE analysis ADD COLUMN IF NOT EXISTS was_translated BOOLEAN DEFAULT FALSE;
+
+-- ============================================================================
+-- Migration: Add Screenshot/Image Analysis columns (Phase 14)
+-- ============================================================================
+
+ALTER TABLE analysis ADD COLUMN IF NOT EXISTS image_url TEXT;
+ALTER TABLE analysis ADD COLUMN IF NOT EXISTS ocr_text TEXT;
+ALTER TABLE analysis ADD COLUMN IF NOT EXISTS visual_flags JSONB;
+
+ALTER TABLE analysis DROP CONSTRAINT IF EXISTS analysis_input_type_check;
+ALTER TABLE analysis ADD CONSTRAINT analysis_input_type_check
+  CHECK (input_type IN ('url', 'text', 'image'));

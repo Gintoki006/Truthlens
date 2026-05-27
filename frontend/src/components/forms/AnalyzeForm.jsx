@@ -6,17 +6,60 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '@/context/AuthContext';
 
 /**
- * Analysis input form with URL / Text toggle.
+ * Analysis input form with URL / Text / Image toggle.
  * Styled to match the editorial newspaper aesthetic.
  * Submits to the Next.js API proxy → FastAPI backend.
  */
 export default function AnalyzeForm() {
-  const [mode, setMode] = useState('url'); // 'url' | 'text'
+  const [mode, setMode] = useState('url'); // 'url' | 'text' | 'image'
   const [input, setInput] = useState('');
+  const [imageFile, setImageFile] = useState(null);
+  const [dragActive, setDragActive] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const router = useRouter();
   const { user } = useAuth();
+
+  // Drag & Drop Handlers
+  const handleDrag = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (e.type === 'dragenter' || e.type === 'dragover') {
+      setDragActive(true);
+    } else if (e.type === 'dragleave') {
+      setDragActive(false);
+    }
+  };
+
+  const handleDrop = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragActive(false);
+    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+      handleFile(e.dataTransfer.files[0]);
+    }
+  };
+
+  const handleChange = (e) => {
+    e.preventDefault();
+    if (e.target.files && e.target.files[0]) {
+      handleFile(e.target.files[0]);
+    }
+  };
+
+  const handleFile = (file) => {
+    setError(null);
+    const validTypes = ['image/jpeg', 'image/png', 'image/webp'];
+    if (!validTypes.includes(file.type)) {
+      setError('Invalid file type. Please upload a JPEG, PNG, or WebP image.');
+      return;
+    }
+    if (file.size > 10 * 1024 * 1024) {
+      setError('File is too large. Maximum size is 10 MB.');
+      return;
+    }
+    setImageFile(file);
+  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -28,7 +71,12 @@ export default function AnalyzeForm() {
       return;
     }
 
-    if (!input.trim()) {
+    if (mode === 'image' && !imageFile) {
+      setError('Please select or drop an image to analyze.');
+      return;
+    }
+
+    if (mode !== 'image' && !input.trim()) {
       setError('Please enter a URL or article text to analyze.');
       return;
     }
@@ -43,7 +91,7 @@ export default function AnalyzeForm() {
         new URL(input.trim());
       } catch {
         setError(
-          'Please enter a valid URL (e.g., https://example.com/article).',
+          'Please enter a valid URL (e.g., https://example.com/article).'
         );
         return;
       }
@@ -52,15 +100,26 @@ export default function AnalyzeForm() {
     setLoading(true);
 
     try {
-      const payload = {
-        ...(mode === 'url' ? { url: input.trim() } : { text: input.trim() }),
-        user_id: user?.id || undefined,
-      };
+      let body;
+      let headers = {};
+
+      if (mode === 'image') {
+        body = new FormData();
+        body.append('image', imageFile);
+        if (user?.id) body.append('user_id', user.id);
+        // Do NOT set Content-Type for FormData, fetch does it automatically with boundary
+      } else {
+        headers = { 'Content-Type': 'application/json' };
+        body = JSON.stringify({
+          ...(mode === 'url' ? { url: input.trim() } : { text: input.trim() }),
+          user_id: user?.id || undefined,
+        });
+      }
 
       const res = await fetch('/api/analyze', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
+        headers,
+        body,
       });
 
       if (!res.ok) {
@@ -91,7 +150,7 @@ export default function AnalyzeForm() {
             setError(null);
           }}
           className={`
-            px-5 py-2 text-[10px] font-['Work_Sans'] font-bold uppercase tracking-[0.2em] transition-all duration-300 border border-slate-900 dark:border-stone-500
+            px-4 sm:px-5 py-2 text-[9px] sm:text-[10px] font-['Work_Sans'] font-bold uppercase tracking-[0.2em] transition-all duration-300 border border-slate-900 dark:border-stone-500
             ${
               mode === 'url'
                 ? 'bg-primary dark:bg-stone-100 text-on-primary dark:text-stone-900'
@@ -101,7 +160,8 @@ export default function AnalyzeForm() {
         >
           <span className="flex items-center gap-2">
             <span className="material-symbols-outlined text-[14px]">link</span>
-            Paste URL
+            <span className="hidden sm:inline">Paste URL</span>
+            <span className="sm:hidden">URL</span>
           </span>
         </button>
         <button
@@ -112,7 +172,7 @@ export default function AnalyzeForm() {
             setError(null);
           }}
           className={`
-            px-5 py-2 text-[10px] font-['Work_Sans'] font-bold uppercase tracking-[0.2em] transition-all duration-300 border border-l-0 border-slate-900 dark:border-stone-500
+            px-4 sm:px-5 py-2 text-[9px] sm:text-[10px] font-['Work_Sans'] font-bold uppercase tracking-[0.2em] transition-all duration-300 border border-l-0 border-slate-900 dark:border-stone-500
             ${
               mode === 'text'
                 ? 'bg-primary dark:bg-stone-100 text-on-primary dark:text-stone-900'
@@ -124,7 +184,32 @@ export default function AnalyzeForm() {
             <span className="material-symbols-outlined text-[14px]">
               article
             </span>
-            Paste Text
+            <span className="hidden sm:inline">Paste Text</span>
+            <span className="sm:hidden">Text</span>
+          </span>
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            setMode('image');
+            setImageFile(null);
+            setError(null);
+          }}
+          className={`
+            px-4 sm:px-5 py-2 text-[9px] sm:text-[10px] font-['Work_Sans'] font-bold uppercase tracking-[0.2em] transition-all duration-300 border border-l-0 border-slate-900 dark:border-stone-500
+            ${
+              mode === 'image'
+                ? 'bg-primary dark:bg-stone-100 text-on-primary dark:text-stone-900'
+                : 'bg-transparent text-slate-600 dark:text-stone-400 hover:text-slate-900 dark:hover:text-stone-100'
+            }
+          `}
+        >
+          <span className="flex items-center gap-2">
+            <span className="material-symbols-outlined text-[14px]">
+              image
+            </span>
+            <span className="hidden sm:inline">Screenshot</span>
+            <span className="sm:hidden">Image</span>
           </span>
         </button>
       </div>
@@ -132,7 +217,7 @@ export default function AnalyzeForm() {
       {/* Input field — editorial style */}
       <div className="relative">
         <AnimatePresence mode="wait">
-          {mode === 'url' ? (
+          {mode === 'url' && (
             <motion.div
               key="url"
               initial={{ opacity: 0, y: 8 }}
@@ -161,25 +246,7 @@ export default function AnalyzeForm() {
                 >
                   {loading ? (
                     <>
-                      <svg
-                        className="animate-spin h-4 w-4"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                      >
-                        <circle
-                          className="opacity-25"
-                          cx="12"
-                          cy="12"
-                          r="10"
-                          stroke="currentColor"
-                          strokeWidth="3"
-                        />
-                        <path
-                          className="opacity-75"
-                          fill="currentColor"
-                          d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
-                        />
-                      </svg>
+                      <span className="material-symbols-outlined animate-spin text-[16px]">autorenew</span>
                       Analyzing...
                     </>
                   ) : (
@@ -188,7 +255,9 @@ export default function AnalyzeForm() {
                 </motion.button>
               </div>
             </motion.div>
-          ) : (
+          )}
+
+          {mode === 'text' && (
             <motion.div
               key="text"
               initial={{ opacity: 0, y: 8 }}
@@ -216,29 +285,104 @@ export default function AnalyzeForm() {
               >
                 {loading ? (
                   <>
-                    <svg
-                      className="animate-spin h-4 w-4"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                    >
-                      <circle
-                        className="opacity-25"
-                        cx="12"
-                        cy="12"
-                        r="10"
-                        stroke="currentColor"
-                        strokeWidth="3"
-                      />
-                      <path
-                        className="opacity-75"
-                        fill="currentColor"
-                        d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
-                      />
-                    </svg>
+                    <span className="material-symbols-outlined animate-spin text-[16px]">autorenew</span>
                     Analyzing...
                   </>
                 ) : (
                   'Analyze Text'
+                )}
+              </motion.button>
+            </motion.div>
+          )}
+
+          {mode === 'image' && (
+            <motion.div
+              key="image"
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -8 }}
+              transition={{ duration: 0.2 }}
+            >
+              <label className="block font-label-caps text-[10px] font-['Work_Sans'] font-bold uppercase tracking-[0.2em] text-slate-500 dark:text-stone-400 mb-2">
+                Screenshot / Image Upload
+              </label>
+              
+              <div
+                className={`relative flex flex-col items-center justify-center p-8 border-2 border-dashed transition-all duration-300 cursor-pointer 
+                  ${
+                    dragActive
+                      ? 'border-primary bg-primary/5 dark:bg-stone-100/10'
+                      : 'border-slate-400 dark:border-stone-600 hover:border-slate-500 dark:hover:border-stone-400'
+                  }
+                  ${imageFile ? 'bg-slate-50 dark:bg-stone-800' : ''}
+                `}
+                onDragEnter={handleDrag}
+                onDragLeave={handleDrag}
+                onDragOver={handleDrag}
+                onDrop={handleDrop}
+                onClick={() => document.getElementById('imageUpload').click()}
+              >
+                <input
+                  id="imageUpload"
+                  type="file"
+                  accept="image/jpeg, image/png, image/webp"
+                  className="hidden"
+                  onChange={handleChange}
+                  disabled={loading}
+                />
+                
+                {imageFile ? (
+                  <div className="flex flex-col items-center text-center">
+                    <span className="material-symbols-outlined text-4xl text-primary dark:text-stone-300 mb-2">
+                      check_circle
+                    </span>
+                    <p className="font-body-md font-bold text-slate-800 dark:text-stone-200">
+                      {imageFile.name}
+                    </p>
+                    <p className="text-xs text-slate-500 dark:text-stone-400 mt-1">
+                      {(imageFile.size / (1024 * 1024)).toFixed(2)} MB
+                    </p>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setImageFile(null);
+                      }}
+                      className="mt-6 px-5 py-2 text-[10px] uppercase tracking-[0.2em] font-bold border border-slate-300 hover:border-secondary hover:text-secondary dark:border-stone-600 dark:hover:border-red-400 dark:hover:text-red-400 transition-colors"
+                      disabled={loading}
+                    >
+                      Remove File
+                    </button>
+                  </div>
+                ) : (
+                  <div className="flex flex-col items-center text-center text-slate-500 dark:text-stone-400 py-4">
+                    <span className="material-symbols-outlined text-[40px] mb-3 opacity-80 text-slate-800 dark:text-stone-300">
+                      upload_file
+                    </span>
+                    <p className="font-body-md font-bold text-slate-800 dark:text-stone-300">
+                      Drag & Drop a screenshot here
+                    </p>
+                    <p className="text-[11px] mt-2 font-bold uppercase tracking-widest opacity-70">
+                      or click to browse (JPEG, PNG, WEBP)
+                    </p>
+                  </div>
+                )}
+              </div>
+
+              <motion.button
+                type="submit"
+                disabled={loading || !imageFile}
+                whileHover={{ scale: loading ? 1 : 1.02 }}
+                whileTap={{ scale: loading ? 1 : 0.98 }}
+                className="mt-4 bg-primary dark:bg-stone-100 text-on-primary dark:text-stone-900 w-full py-4 font-['Work_Sans'] font-bold uppercase tracking-widest hover:bg-slate-800 dark:hover:bg-stone-300 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-3"
+              >
+                {loading ? (
+                  <>
+                    <span className="material-symbols-outlined animate-spin text-[16px]">autorenew</span>
+                    Analyzing Image...
+                  </>
+                ) : (
+                  'Analyze Screenshot'
                 )}
               </motion.button>
             </motion.div>

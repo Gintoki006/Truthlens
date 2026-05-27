@@ -10,11 +10,22 @@ const API_BASE = process.env.NEXT_PUBLIC_FASTAPI_URL || "http://localhost:8000";
  * @param {{ url?: string, text?: string, userId?: string }} params
  * @returns {Promise<object>} Full analysis result
  */
-export async function analyzeArticle({ url, text, userId }) {
+export async function analyzeArticle({ url, text, image, userId }) {
+  let body, headers = {};
+
+  if (image) {
+    body = new FormData();
+    body.append("image", image);
+    if (userId) body.append("user_id", userId);
+  } else {
+    headers = { "Content-Type": "application/json" };
+    body = JSON.stringify({ url, text, user_id: userId });
+  }
+
   const res = await fetch(`${API_BASE}/api/analyze`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ url, text, user_id: userId }),
+    headers,
+    body,
   });
 
   if (!res.ok) {
