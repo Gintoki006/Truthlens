@@ -28,6 +28,9 @@ class AnalyzeRequest(BaseModel):
 class AnalyzeResponse(BaseModel):
     id: str | None = None
     input_type: str
+    original_language: str | None = None
+    original_text: str | None = None
+    was_translated: bool = False
     article_title: str | None = None
     article_body: str | None = None
     source_domain: str | None = None
@@ -113,6 +116,21 @@ async def analyze(request: AnalyzeRequest):
         except Exception:
             article_age_hours = None
 
+    # ── Step 1.5: Language Detection and Translation ────────────────────
+    from services.language import detect_language
+    from services.translator import translate_to_english
+
+    original_text = article_body
+    original_language = None
+    was_translated = False
+
+    if article_body:
+        lang = detect_language(article_body)
+        if lang != "en":
+            article_body = translate_to_english(article_body, source_lang=lang)
+            original_language = lang
+            was_translated = True
+
     # ── Step 2: Run all five signals in parallel ────────────────────────
     from services.nlp import compute_nlp_score
     from services.source import compute_source_score
@@ -196,8 +214,11 @@ async def analyze(request: AnalyzeRequest):
         row = {
             "input_type": input_type,
             "raw_input": request.url or request.text,
+            "original_language": original_language,
+            "original_text": original_text[:10000] if original_text else None,
+            "was_translated": was_translated,
             "article_title": article_title,
-            "article_body": article_body[:10000],  # Truncate for storage
+            "article_body": article_body[:10000] if article_body else None,  # Truncate for storage
             "source_domain": source_domain,
             "score_final": final["score"],
             "score_nlp": nlp_result["score"],
@@ -245,8 +266,11 @@ async def analyze(request: AnalyzeRequest):
     return AnalyzeResponse(
         id=analysis_id,
         input_type=input_type,
+        original_language=original_language,
+        original_text=original_text[:5000] if original_text else None,
+        was_translated=was_translated,
         article_title=article_title,
-        article_body=article_body[:5000],
+        article_body=article_body[:5000] if article_body else None,
         source_domain=source_domain,
         score_final=final["score"],
         score_nlp=nlp_result["score"],

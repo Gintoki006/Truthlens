@@ -32,6 +32,10 @@ async def lifespan(app: FastAPI):
     load_fever_index()
     print("[OK] FEVER index ready")
 
+    print("[*] Loading NLLB-200 translation model...")
+    from services.translator import translate_to_english
+    print("[OK] NLLB-200 ready")
+
     # Start feed scheduler
     from scheduler import start_scheduler, shutdown_scheduler
     start_scheduler()
