@@ -1,6 +1,6 @@
 # TruthLens
 
-TruthLens is a full-stack AI-powered fake news detection system. It analyzes news articles and factual claims to determine their authenticity, returning an explainable confidence score that draws on natural language processing, machine learning classification, real-world corroboration, and professional fact-checking databases — all evaluated in parallel.
+TruthLens is a full-stack AI-powered fake news detection system. It analyzes news articles and factual claims to determine their authenticity, returning an explainable confidence score that draws on natural language processing, machine learning classification, semantic analysis, real-world corroboration, and professional fact-checking databases — all evaluated in parallel.
 
 ---
 
@@ -22,7 +22,8 @@ TruthLens is a full-stack AI-powered fake news detection system. It analyzes new
 ## Features
 
 - **Multi-mode input** — Analyze news by submitting a URL (automatically scraped) or pasting raw text.
-- **3-Group Signal Architecture** — Scores are grouped into Content Intelligence, Source and Corroboration, and Fact Verification. Each group is expandable in the UI to reveal its individual sub-signals.
+- **Adaptive scoring architecture** — The scoring formula changes based on whether you submit a URL or plain text. URL input focuses on content and source signals; text and claim input additionally runs a full fact verification group.
+- **Semantic analysis** — Groq LLaMA-3.3-70b evaluates every submission for plausibility, sensationalism, misinformation patterns, and known conspiracy tropes. It also performs a dedicated factual accuracy check against its knowledge base, optionally grounded by live web context from Serper.
 - **Explainable verdicts** — A plain-English explanation is generated for every result, referencing the specific signals, corroborating outlets, and fact-check findings that influenced the score.
 - **Sentence-level highlighting** — The article body is color-coded sentence by sentence (green / amber / red). Clicking a sentence shows a tooltip explaining why it was flagged.
 - **Live analyzed news feed** — A background scheduler fetches top headlines from NewsAPI every 30 minutes, runs them through the full analysis pipeline, and surfaces results in a real-time feed.
@@ -38,70 +39,99 @@ TruthLens is a full-stack AI-powered fake news detection system. It analyzes new
 
 ## How It Works
 
-TruthLens uses a **3-Group Signal Architecture**. When a URL or text is submitted, all sub-signals run concurrently using Python's `asyncio.gather()`. Results are then grouped and fused into a final score.
+TruthLens uses an **adaptive two-path scoring architecture**. The signal groups and formula weights applied to a submission depend on whether the input is a URL or plain text. All signals run concurrently using Python's `asyncio.gather()`.
 
-### Group A — Content Intelligence (35% of final score)
+---
 
-Answers the question: *Does this text look authentic based on writing style and ML classification?*
+### Path 1 — URL Input
 
-| Sub-signal | Weight within group | Tool |
-|---|---|---|
-| NLP style analysis | 40% | VADER + TextBlob + clickbait regex |
-| ML ensemble | 60% | RoBERTa (60%) + Logistic Regression/TF-IDF (40%) |
+When a URL is submitted, `newspaper3k` scrapes the article and two signal groups are computed:
 
-- **RoBERTa** (`hamzab/roberta-fake-news-classification`) is a transformer model pre-trained on 72,000 articles. It is loaded via the HuggingFace Inference API, with a local pipeline as fallback.
-- **Logistic Regression** is trained on the LIAR dataset (12,000 labeled statements) with TF-IDF vectorization. The model is serialized as `lr_model.pkl` and `tfidf_vectorizer.pkl`.
+**Group A — Content Intelligence (65% of final score)**
 
-### Group B — Source and Corroboration (30% of final score)
-
-Answers the question: *Is the source credible, and have trusted outlets reported this story?*
+This group evaluates the quality and credibility of the writing and the ML classification of the text.
 
 | Sub-signal | Weight within group | Tool |
 |---|---|---|
-| Domain trust | 50% | Supabase `source` table (~3,050 curated domains) |
-| Cross-check | 50% | Serper API (Google Search) + Groq stance detection |
+| NLP style analysis | 20% | VADER + TextBlob + clickbait regex |
+| RoBERTa classification | 30% | `hamzab/roberta-fake-news-classification` (HuggingFace) |
+| LR / TF-IDF classification | 15% | Logistic Regression trained on LIAR dataset |
+| Semantic analysis (Groq) | 35% | LLaMA-3.3-70b — plausibility, sensationalism, misinformation patterns |
 
-- Serper search queries are anchored to the primary subject using strict quoting, then enriched with trusted `site:` hints. Up to five search rounds are performed, with a wider fallback round if enough sources are not found.
-- Groq LLaMA-3.1-8b-instant classifies each returned search snippet as `supports`, `debunks`, or `neutral`. Articles that actively debunk the claim penalize the crosscheck score by up to 40 points.
-- For URL input, additional checks are applied: HTTP-only domains receive a 10-point penalty; domains younger than six months (via WHOIS) receive a 15-point penalty.
+The Groq semantic analysis signal carries the most weight within this group. It evaluates the claim on five criteria: logical plausibility, language sensationalism, consistency with known facts, misinformation pattern matching (e.g., microchip conspiracy tropes), and satire / parody detection.
 
-### Group C — Fact Verification (35% of final score)
-
-Answers the question: *Has this claim been independently verified by authoritative sources?*
+**Group B — Source and Corroboration (35% of final score)**
 
 | Sub-signal | Weight within group | Tool |
 |---|---|---|
-| Google Fact Check API | 40% | PolitiFact, Snopes, Reuters, BOOM Live, Alt News, and others |
-| Wikidata entity check | 40% | Hybrid REST and SPARQL predicate verification |
-| FEVER dataset | 20% | 185,000 labeled claims — semantic similarity search |
+| Domain trust | 45% | Supabase `source` table (~3,050 curated domains) |
+| Cross-check | 55% | Serper API (Google Search) + Groq stance detection |
 
-- The Google Fact Check API uses a fuzzy similarity threshold (≥ 80%) to avoid false-positive matches.
-- The Wikidata lookup uses the REST API for fast entity description retrieval, falling back to a SPARQL query for deeper predicate matching. Results are cached with `lru_cache` and the query is retried with exponential backoff on rate limit errors.
-- The FEVER dataset (185,000 claim-evidence pairs: SUPPORTED, REFUTED, NOT ENOUGH INFO) is loaded into memory at server startup and searched using semantic embeddings from the `all-MiniLM-L6-v2` model.
+Serper search queries are anchored to the primary subject using strict quoting and enriched with trusted `site:` hints. Groq classifies each returned snippet as `supports`, `debunks`, or `neutral`.
+
+**URL formula:**
+```
+final = (content_score x 0.65) + (source_score x 0.35)
+```
+
+**Serper fallback** (0 results returned and article is under 6 hours old): the same formula weights are retained but a `crosscheck_fallback` flag is set, and the UI displays a "Story may be too recent to verify" notice.
+
+---
+
+### Path 2 — Text / Claim Input
+
+When plain text or a factual claim is submitted (no URL), there is no source domain available. The system runs all three groups, with the Fact Verification group added to compensate for the absence of domain trust data.
+
+**Group A — Content Intelligence (50% of final score)**
+
+Same four sub-signals as the URL path (NLP, RoBERTa, LR, Groq semantic analysis).
+
+**Group B — Source / Crosscheck (30% of final score)**
+
+Domain trust is excluded. Only the Serper crosscheck score is used. If Serper returns no results, Group B is dropped entirely and the formula becomes:
+```
+final = (content_score x 0.60) + (facts_score x 0.40)
+```
+
+**Group C — Fact Verification (20% of final score)**
+
+This group is only active for text/claim input. It verifies the claim against structured knowledge bases.
+
+| Sub-signal | Weight within group | Tool |
+|---|---|---|
+| Groq logical fact check | 55% | LLaMA-3.3-70b — factual accuracy check, live web context via Serper |
+| Wikidata entity check | 20% | Hybrid REST and SPARQL predicate verification |
+| FEVER dataset | 15% | 185,000 labeled claims — semantic similarity search |
+| Google Fact Check API | 10% | PolitiFact, Snopes, Reuters, BOOM Live, Alt News, and others |
+
+The Groq logical fact check fetches up to five live web snippets from Serper before prompting the model, grounding its response in current information. It returns a verdict (true / false / partially_true / unverifiable), a confidence level, and specific factual corrections when the claim is false.
+
+**Text input formula (with Serper results):**
+```
+final = (content_score x 0.50) + (source_score x 0.30) + (facts_score x 0.20)
+```
+
+**Text input fallback (no Serper results):**
+```
+final = (content_score x 0.60) + (facts_score x 0.40)
+```
+
+---
 
 ### Override Rules
 
-After the group scores are fused, a final set of override rules is applied:
+After the path-specific formula produces a score, a set of override rules is applied as a final adjustment. Each override fires only when its confidence threshold is met:
 
-- If Groq assigns a plausibility or news check score of 80 or above, the final score is floored at 75 (Likely Real).
-- If Groq assigns a score of 30 or below (including detected satire), the final score is capped at 35 (Likely Fake).
-- If Wikidata confirms a factual predicate, a 5-point bonus is added.
-- If Wikidata contradicts a factual predicate, an 8-point penalty is applied.
+| Condition | Action |
+|---|---|
+| Groq semantic score is 30 or below AND plausibility is "low" | Cap final score at 35 (Likely Fake) |
+| Groq semantic score is 80 or above AND no misinformation pattern AND plausibility is "high" | Floor final score at 75 (Likely Real) |
+| Groq fact check confidence is "high" AND score is 25 or below | Cap final score at 35 |
+| Groq fact check confidence is "high" AND score is 80 or above | Floor final score at 75 |
+| Wikidata score is 75 or above (entity confirmed) | Add 5 points, capped at 100 |
+| Wikidata score is 25 or below (entity contradicted) | Subtract 8 points, floored at 0 |
 
-### Scoring Formulas
-
-The formula variant is selected automatically based on the input type and Serper availability:
-
-```
-Standard (URL input):
-  score = (content x 0.35) + (source x 0.30) + (facts x 0.35)
-
-Text-only input (no source domain):
-  score = (content x 0.40) + (serper_only x 0.20) + (facts x 0.40)
-
-Serper fallback (0 results, article under 6 hours old):
-  score = (content x 0.50) + (facts x 0.50)
-```
+---
 
 ### Verdict Thresholds
 
@@ -110,6 +140,20 @@ Serper fallback (0 results, article under 6 hours old):
 | 70 – 100 | Likely Real |
 | 40 – 69 | Suspicious / Unverified |
 | 0 – 39 | Likely Fake |
+
+---
+
+### Groq Semantic Analysis — What It Evaluates
+
+The `groq_news_check` service (called for every submission) uses `llama-3.3-70b-versatile` at temperature 0 to evaluate five dimensions and return a structured JSON score:
+
+- **Plausibility** — Is the claim physically, scientifically, and logically possible?
+- **Sensationalism** — Is the language neutral and factual, or emotionally charged and clickbait?
+- **Known facts** — Does this contradict well-established facts in the model's knowledge base?
+- **Misinformation patterns** — Does this match recognized conspiracy or hoax tropes (microchips in vaccines, faked moon landings, 5G causing disease, pharma suppression, etc.)?
+- **Satire / parody detection** — Is this clearly a satirical or parody article?
+
+The `groq_fact_check` service (called only for text/claim input) is a separate, distinct call that focuses on factual accuracy — not style or pattern matching. It first fetches live web snippets from Serper, then asks the model to verify specific facts (dates, names, numbers, locations) against both the live context and its training knowledge.
 
 ---
 
@@ -135,16 +179,16 @@ Serper fallback (0 results, article under 6 hours old):
 |---|---|---|
 | FastAPI | >= 0.115 | Python API server |
 | uvicorn | >= 0.30 | ASGI server |
-| HuggingFace Transformers | >= 4.44 | RoBERTa fake-news model |
+| HuggingFace Transformers | >= 4.44 | RoBERTa fake-news classification model |
 | scikit-learn / joblib | >= 1.5 | Logistic Regression and TF-IDF model |
-| sentence-transformers | >= 2.2 | FEVER semantic embeddings |
+| sentence-transformers | >= 2.2 | FEVER semantic embeddings (`all-MiniLM-L6-v2`) |
 | VADER / TextBlob / NLTK | — | NLP signal analysis |
 | newspaper3k | >= 0.2.8 | Article scraping from URLs |
-| APScheduler | >= 3.10 | Background news feed jobs |
+| APScheduler | >= 3.10 | Background news feed scheduler |
 | httpx | >= 0.27 | Async HTTP client (Serper, Groq, Wikidata) |
-| Groq API | — | LLaMA-3.1-8b-instant for explanations and stance detection |
-| Serper API | — | Google Search corroboration |
-| Google Fact Check API | — | Professional fact-checker database |
+| Groq API (llama-3.3-70b-versatile) | — | Semantic analysis, factual accuracy check, and LLM explanations |
+| Serper API | — | Google Search corroboration and live web context for Groq fact check |
+| Google Fact Check API | — | Professional fact-checker database (PolitiFact, Snopes, etc.) |
 | Wikidata REST and SPARQL | — | Entity predicate verification |
 | NewsAPI | — | Live news feed headlines |
 
@@ -203,7 +247,7 @@ All routes are served by the FastAPI backend under the `/api` prefix.
 | Route | Description |
 |---|---|
 | `/` | Landing page with hero section, features overview, live feed strip, and recent analyses. |
-| `/results/[id]` | Full results view — score gauge, verdict badge, 3-group signal bars (expandable), sentence highlights, and AI explanation. |
+| `/results/[id]` | Full results view — score gauge, verdict badge, signal group bars (expandable), sentence highlights, and AI explanation. |
 | `/history` | The authenticated user's private archive with verdict and time filters, pagination. |
 | `/saved` | Bookmarked analyses. |
 | `/dashboard` | Stats charts and live analyzed news feed. |
@@ -346,10 +390,13 @@ truthlens/
 │       ├── google_factcheck.py    Google Fact Check Tools API integration
 │       ├── wikidata_lookup.py     Wikidata REST and SPARQL hybrid entity check
 │       ├── fever_index.py         FEVER dataset semantic search index
-│       ├── factcheck.py           Fact verification orchestrator (fuses 3 sub-signals)
-│       ├── groq_fact_check.py     Groq plausibility scoring
-│       ├── groq_news_check.py     Groq satire and tone detection
-│       ├── scorer.py              3-group fusion, formula selection, and override rules
+│       ├── factcheck.py           Fact verification orchestrator (fuses sub-signals for text input)
+│       ├── groq_news_check.py     Groq semantic analysis — plausibility, sensationalism,
+│       │                          misinformation patterns, satire detection (all input types)
+│       ├── groq_fact_check.py     Groq factual accuracy check with live Serper web context
+│       │                          (text/claim input only)
+│       ├── scorer.py              Adaptive score fusion. Applies URL path or text path
+│       │                          formula, then override rules.
 │       ├── explainer.py           LLM explanation generation via Groq
 │       ├── claim_analyzer.py      Claim and entity extraction helper
 │       ├── news_fetcher.py        NewsAPI headline fetcher (used by background scheduler)
