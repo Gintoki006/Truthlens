@@ -13,6 +13,8 @@ joblib>=1.4.2
 nltk>=3.9.1
 textblob>=0.18.0
 vaderSentiment>=3.3.2
+langdetect>=1.0.9
+
 
 # Article scraping
 newspaper3k>=0.2.8
