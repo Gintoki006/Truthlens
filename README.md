@@ -1,6 +1,6 @@
 # TruthLens
 
-TruthLens is a full-stack AI-powered fake news detection system. It analyzes news articles and factual claims to determine their authenticity, returning an explainable confidence score that draws on natural language processing, machine learning classification, semantic analysis, real-world corroboration, and professional fact-checking databases — all evaluated in parallel.
+TruthLens is a full-stack AI-powered fake news detection system. It analyzes news articles, factual claims, and screenshot images — in any language — to determine their authenticity. It returns an explainable confidence score that draws on natural language processing, machine learning classification, semantic analysis, real-world corroboration, professional fact-checking databases, and multimodal vision AI — all evaluated in parallel.
 
 ---
 
@@ -21,11 +21,14 @@ TruthLens is a full-stack AI-powered fake news detection system. It analyzes new
 
 ## Features
 
-- **Multi-mode input** — Analyze news by submitting a URL (automatically scraped) or pasting raw text.
-- **Adaptive scoring architecture** — The scoring formula changes based on whether you submit a URL or plain text. URL input focuses on content and source signals; text and claim input additionally runs a full fact verification group.
-- **Semantic analysis** — Groq LLaMA-3.3-70b evaluates every submission for plausibility, sensationalism, misinformation patterns, and known conspiracy tropes. It also performs a dedicated factual accuracy check against its knowledge base, optionally grounded by live web context from Serper.
-- **Explainable verdicts** — A plain-English explanation is generated for every result, referencing the specific signals, corroborating outlets, and fact-check findings that influenced the score.
+- **Multi-mode input** — Analyze news by submitting a URL (automatically scraped), pasting raw text or a claim, or uploading a screenshot image.
+- **Screenshot / image fact-check** — Upload a social media screenshot or news image. Qwen2.5-VL-32B (via OpenRouter) extracts the text, identifies key claims, entities, emotional tone, and visual manipulation signals (urgency framing, fake authority cues, ALL-CAPS headlines). The extracted claims are then passed through the full fact-checking pipeline.
+- **Multilingual analysis** — Submit content in any language. Language is detected automatically using `langdetect`. Non-English content is translated to English by `facebook/nllb-200-distilled-600M` before analysis. The original text is preserved and shown alongside the translation. A "Translated from [language]" badge appears on results.
+- **Adaptive scoring architecture** — The scoring formula changes based on input type. URL input runs Content + Source groups; text and claim input additionally runs a full Fact Verification group. Image input follows the text path after claim extraction.
+- **Semantic analysis** — Groq LLaMA-3.3-70b evaluates every submission for plausibility, sensationalism, misinformation patterns, and known conspiracy tropes. It also performs a dedicated factual accuracy check optionally grounded by live web context from Serper.
+- **Explainable verdicts** — A plain-English explanation is generated for every result, referencing specific signals, corroborating outlets, and fact-check findings.
 - **Sentence-level highlighting** — The article body is color-coded sentence by sentence (green / amber / red). Clicking a sentence shows a tooltip explaining why it was flagged.
+- **Visual manipulation signals** — For image input, a dedicated panel shows detected propaganda and manipulation tactics (fear-based framing, urgency language, unverified authority claims).
 - **Live analyzed news feed** — A background scheduler fetches top headlines from NewsAPI every 30 minutes, runs them through the full analysis pipeline, and surfaces results in a real-time feed.
 - **Per-user history and archive** — Signed-in users have a private history of all their analyses, with verdict and time filters, persistent across devices.
 - **Saved articles** — Authenticated users can bookmark any analysis for later reference.
@@ -39,7 +42,36 @@ TruthLens is a full-stack AI-powered fake news detection system. It analyzes new
 
 ## How It Works
 
-TruthLens uses an **adaptive two-path scoring architecture**. The signal groups and formula weights applied to a submission depend on whether the input is a URL or plain text. All signals run concurrently using Python's `asyncio.gather()`.
+TruthLens uses an **adaptive two-path scoring architecture**. Every submission passes through a pre-processing layer before entering one of two scoring paths. All scoring signals run concurrently using Python's `asyncio.gather()`.
+
+---
+
+### Pre-processing Layer (Applied to All Input Types)
+
+Before any scoring takes place, two pre-processing steps run in sequence:
+
+**Step 1 — Image extraction (image input only)**
+
+When an image is uploaded, `services/vision.py` base64-encodes the file and sends it to Qwen2.5-VL-32B via the OpenRouter API. The model returns structured JSON:
+
+```json
+{
+  "extracted_text": "...",
+  "main_claims": ["..."],
+  "entities": ["NASA", "WHO"],
+  "emotional_tone": "fear-based",
+  "manipulation_tactics": ["urgency framing", "fake authority"],
+  "credibility_red_flags": ["ALL CAPS headline", "no source cited"]
+}
+```
+
+The `main_claims` array is joined into a single string and passed forward as text. The full structured response is stored in the `visual_flags` column in Supabase. The original image is stored in Supabase Storage and its public URL recorded in `image_url`. A 15-second timeout is applied; if the model fails, the raw OCR text is used as fallback.
+
+**Step 2 — Language detection and translation (all input types)**
+
+`services/language.py` runs `langdetect` on the text. If the detected language is not English, `services/translator.py` loads `facebook/nllb-200-distilled-600M` (cached in memory at startup) and translates the text to English. The original text is preserved in `original_text`; `was_translated` is set to `true` and `original_language` stores the ISO language code (e.g., `bn`, `hi`, `ta`).
+
+For image input in a non-English language, language detection and translation run on the `extracted_text` from the vision step before claims enter the pipeline.
 
 ---
 
@@ -179,18 +211,22 @@ The `groq_fact_check` service (called only for text/claim input) is a separate, 
 |---|---|---|
 | FastAPI | >= 0.115 | Python API server |
 | uvicorn | >= 0.30 | ASGI server |
-| HuggingFace Transformers | >= 4.44 | RoBERTa fake-news classification model |
+| HuggingFace Transformers | >= 4.44 | RoBERTa fake-news model + NLLB-200 translation model |
 | scikit-learn / joblib | >= 1.5 | Logistic Regression and TF-IDF model |
 | sentence-transformers | >= 2.2 | FEVER semantic embeddings (`all-MiniLM-L6-v2`) |
 | VADER / TextBlob / NLTK | — | NLP signal analysis |
+| langdetect | >= 1.0.9 | Language identification (ISO code detection) |
+| facebook/nllb-200-distilled-600M | — | Neural machine translation — 200 languages to English |
 | newspaper3k | >= 0.2.8 | Article scraping from URLs |
 | APScheduler | >= 3.10 | Background news feed scheduler |
-| httpx | >= 0.27 | Async HTTP client (Serper, Groq, Wikidata) |
+| httpx | >= 0.27 | Async HTTP client (Serper, Groq, Wikidata, OpenRouter) |
 | Groq API (llama-3.3-70b-versatile) | — | Semantic analysis, factual accuracy check, and LLM explanations |
+| OpenRouter API (Qwen2.5-VL-32B) | — | Multimodal vision — image text extraction and manipulation signal analysis |
 | Serper API | — | Google Search corroboration and live web context for Groq fact check |
 | Google Fact Check API | — | Professional fact-checker database (PolitiFact, Snopes, etc.) |
 | Wikidata REST and SPARQL | — | Entity predicate verification |
 | NewsAPI | — | Live news feed headlines |
+| Supabase Storage | — | Image upload storage (free tier: 1 GB) |
 
 ### Database and Auth
 
@@ -208,7 +244,17 @@ The database has three core tables:
 
 ```
 analysis    — One row per article analyzed. Stores the final score, verdict, all
-              individual signal scores, sentences, corroborating sources, and explanation.
+              individual signal scores, sentences, corroborating sources, explanation,
+              and new fields for image analysis and multilingual support:
+
+                input_type          — 'url' | 'text' | 'image'
+                image_url           — Supabase Storage public URL (image input only)
+                ocr_text            — Raw text extracted from image by vision model
+                visual_flags        — JSONB: manipulation_tactics, credibility_red_flags,
+                                      emotional_tone, entities (image input only)
+                original_language   — ISO 639-1 code, e.g. 'bn', 'hi', 'ta'
+                original_text       — The original non-English text before translation
+                was_translated      — Boolean; true if NLLB translation was applied
 
 source      — Approximately 3,050 curated domains with trust scores.
               Seeded from OpenSources (~2,500 domains), MBFC (~500 domains),
@@ -220,6 +266,8 @@ feed_item   — News headlines fetched from NewsAPI and analyzed by the backgrou
 
 The `source` table is populated once before deployment by running `scripts/seed_sources.py`. All table definitions and Row Level Security policies are in `supabase/migration.sql`.
 
+Note: the `input_type` check constraint must include `'image'`. Run the migration update in `supabase/migration.sql` before deploying the image feature.
+
 ---
 
 ## API Endpoints
@@ -228,7 +276,7 @@ All routes are served by the FastAPI backend under the `/api` prefix.
 
 | Method | Endpoint | Description |
 |---|---|---|
-| POST | `/api/analyze` | Main analysis endpoint. Accepts `{ url, text, user_id }`. Returns a nested grouped result object. |
+| POST | `/api/analyze` | Main analysis endpoint. Accepts `multipart/form-data` with fields `url`, `text`, `image` (file upload), and `user_id`. Returns a nested grouped result object. |
 | GET | `/api/history` | Returns the authenticated user's last 50 analyses. Requires a valid Supabase JWT. |
 | GET | `/api/analysis/{id}` | Returns a single analysis by ID. Row Level Security enforced — owner access only. |
 | POST | `/api/vote` | Submit a community vote. Body: `{ analysis_id, vote: "up" or "down" }`. |
@@ -239,6 +287,7 @@ All routes are served by the FastAPI backend under the `/api` prefix.
 | GET | `/api/feed` | Returns the latest analyzed news headlines from the background feed. |
 | GET | `/api/stats` | Returns global stats: total articles analyzed, verdict breakdown. |
 | GET | `/auth/callback` | Supabase OAuth callback handler for Google login. |
+
 
 ---
 
@@ -311,6 +360,7 @@ HF_API_TOKEN=your_huggingface_api_token
 HF_MODEL_NAME=hamzab/roberta-fake-news-classification
 SERPER_API_KEY=your_serper_api_key
 GROQ_API_KEY=your_groq_api_key
+OPENROUTER_API_KEY=your_openrouter_api_key
 GOOGLE_FACTCHECK_API_KEY=your_google_fact_check_api_key
 NEWS_API_KEY=your_newsapi_key
 ALLOWED_ORIGINS=http://localhost:3000
@@ -324,9 +374,10 @@ Start the backend server:
 uvicorn main:app --reload --port 8000
 ```
 
-On first startup, the FEVER index (~200 MB) will be built and cached to disk. Subsequent restarts load from the cache.
+On first startup, the FEVER index (~200 MB) and NLLB-200 translation model (~600 MB on disk) will be built and cached. Subsequent restarts load from the cache.
 
 ---
+
 
 ### Step 3 — Frontend Setup (Next.js)
 
@@ -383,6 +434,13 @@ truthlens/
 │   │   └── stats.py               GET /api/stats
 │   └── services/
 │       ├── scraper.py             Article scraping via newspaper3k
+│       ├── vision.py              Image analysis via Qwen2.5-VL-32B (OpenRouter).
+│       │                          Base64-encodes image, returns structured JSON with
+│       │                          extracted_text, main_claims, entities, emotional_tone,
+│       │                          manipulation_tactics, credibility_red_flags
+│       ├── language.py            Language detection via langdetect. Returns ISO code.
+│       ├── translator.py          NLLB-200 translation to English. Model cached in RAM
+│       │                          at startup. Called when detected language is not 'en'.
 │       ├── nlp.py                 VADER, TextBlob, and clickbait regex NLP signal
 │       ├── ml.py                  RoBERTa and LR/TF-IDF ML ensemble
 │       ├── source.py              Domain trust lookup against the Supabase source table
@@ -428,18 +486,23 @@ truthlens/
 │       │   │   ├── OverrideBadge.jsx       Score override indicator
 │       │   │   ├── FallbackBadge.jsx       "Story may be too recent to verify" notice
 │       │   │   ├── TextOnlyBadge.jsx       "No source domain" notice
+│       │   │   ├── TranslationBadge.jsx    "Translated from [language]" badge
+│       │   │   ├── ManipulationRadar.jsx   Visual manipulation tactics display (image input)
+│       │   │   ├── VisualFlagsPanel.jsx    Credibility red flags panel (image input)
+│       │   │   ├── ExtractedClaimsPanel.jsx Extracted text and claims panel (image input)
 │       │   │   ├── SignalBar.jsx           Generic reusable signal bar
 │       │   │   ├── DashboardView.jsx       Stats charts (Recharts)
 │       │   │   ├── LiveFeedView.jsx        Live analyzed news feed with category filter
 │       │   │   └── ArchiveView.jsx         History list with filters and pagination
 │       │   ├── forms/
-│       │   │   ├── AnalyzeForm.jsx         URL / text input toggle and submission
+│       │   │   ├── AnalyzeForm.jsx         URL / text / image upload tab toggle and submission
 │       │   │   └── AuthForm.jsx            Email and password login and signup
 │       │   ├── header.jsx                  Navigation bar with user avatar and sign-out
 │       │   ├── footer.jsx
 │       │   ├── live-feed-section.jsx       Landing page feed strip
 │       │   ├── recent-analyses.jsx         Landing page recent analyses strip
 │       │   └── animations.jsx              ScrollReveal and HorizontalScroll wrappers
+
 │       ├── hooks/
 │       │   ├── useAnalysis.js
 │       │   ├── useHistory.js
