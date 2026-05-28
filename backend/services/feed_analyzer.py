@@ -3,7 +3,7 @@ from urllib.parse import urlparse
 from supabase import create_client
 
 from services.news_fetcher import fetch_top_headlines
-from routes.analyze import analyze, AnalyzeRequest
+from routes.analyze import process_analysis
 
 async def process_live_feed():
     """
@@ -37,9 +37,8 @@ async def process_live_feed():
             print(f"    [ANALYZE] {article['headline']}")
             try:
                 # Run through the existing analysis pipeline
-                req = AnalyzeRequest(url=url)
-                # Call the analyze route handler directly
-                response = await analyze(req)
+                # Call the analysis process directly
+                response = await process_analysis(req_url=url, req_text=None, req_user_id=None)
                 
                 # Extract domain
                 domain = None

@@ -68,30 +68,20 @@ class AnalyzeResponse(BaseModel):
 
 @router.post("/analyze", response_model=AnalyzeResponse)
 async def analyze(request: Request):
-    """Run full multi-signal analysis on an article or image."""
-    content_type = request.headers.get("content-type", "")
-    
-    req_url = None
-    req_text = None
-    req_user_id = None
-    image_bytes = None
-    image_filename = None
-    
-    if "application/json" in content_type:
+    content_type = request.headers.get('content-type', '')
+    req_url = req_text = req_user_id = image_bytes = image_filename = None
+    if 'application/json' in content_type:
         data = await request.json()
-        req_url = data.get("url")
-        req_text = data.get("text")
-        req_user_id = data.get("user_id")
-    elif "multipart/form-data" in content_type or "application/x-www-form-urlencoded" in content_type:
+        req_url, req_text, req_user_id = data.get('url'), data.get('text'), data.get('user_id')
+    elif 'multipart/form-data' in content_type or 'application/x-www-form-urlencoded' in content_type:
         form = await request.form()
-        req_url = form.get("url")
-        req_text = form.get("text")
-        req_user_id = form.get("user_id")
-        image = form.get("image")
-        if image and hasattr(image, "filename") and image.filename:
-            image_bytes = await image.read()
-            image_filename = image.filename
+        req_url, req_text, req_user_id = form.get('url'), form.get('text'), form.get('user_id')
+        image = form.get('image')
+        if image and hasattr(image, 'filename') and image.filename:
+            image_bytes, image_filename = await image.read(), image.filename
+    return await process_analysis(req_url, req_text, req_user_id, image_bytes, image_filename)
 
+async def process_analysis(req_url: str | None, req_text: str | None, req_user_id: str | None, image_bytes: bytes | None = None, image_filename: str | None = None) -> AnalyzeResponse:
     if not req_url and not req_text and not image_bytes:
         raise HTTPException(status_code=400, detail="Provide either a URL, text, or image to analyze.")
 
@@ -200,25 +190,25 @@ async def analyze(request: Request):
     from services.groq_news_check import groq_news_check
     from services.groq_fact_check import groq_fact_check
 
-    nlp_future = loop.run_in_executor(executor, compute_nlp_score, article_body)
-    source_future = loop.run_in_executor(executor, compute_source_score, source_domain, authors)
-    ml_future = loop.run_in_executor(executor, compute_ml_score, article_body)
-    crosscheck_future = asyncio.create_task(crosscheck(article_title or article_body[:120], input_type == "text"))
-    groq_news_future = asyncio.create_task(groq_news_check(article_title or article_body[:500]))
-
-    if input_type == "text":
+    # Use the article title if available and not a generic placeholder, else fallback to body.
+    search_query = article_title if article_title and article_title != "Screenshot Analysis" else article_body[:120]
+    
+    try:
+        nlp_future = loop.run_in_executor(executor, compute_nlp_score, article_body)
+        source_future = loop.run_in_executor(executor, compute_source_score, source_domain, authors)
+        ml_future = loop.run_in_executor(executor, compute_ml_score, article_body)
+        crosscheck_future = asyncio.create_task(crosscheck(search_query, input_type == "text"))
+        groq_news_future = asyncio.create_task(groq_news_check(search_query))
         factcheck_future = loop.run_in_executor(executor, compute_fact_score, article_body[:500])
-        groq_fact_future = asyncio.create_task(groq_fact_check(article_title or article_body[:500]))
-        
+        groq_fact_future = asyncio.create_task(groq_fact_check(search_query))
+
         nlp_result, source_result, ml_result, crosscheck_result, factcheck_result, groq_news_result, groq_fact_result = await asyncio.gather(
             nlp_future, source_future, ml_future, crosscheck_future, factcheck_future, groq_news_future, groq_fact_future
         )
-    else:
-        nlp_result, source_result, ml_result, crosscheck_result, groq_news_result = await asyncio.gather(
-            nlp_future, source_future, ml_future, crosscheck_future, groq_news_future
-        )
-        factcheck_result = {}
-        groq_fact_result = {}
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Internal Analysis Error: {str(e)}")
 
     # ── Step 3: Fuse scores ─────────────────────────────────────────────
     from services.scorer import compute_final_score, score_sentences

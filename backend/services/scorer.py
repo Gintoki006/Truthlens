@@ -44,15 +44,23 @@ def compute_final_score(
     if groq_news_result is None: groq_news_result = {}
     if groq_fact_result is None: groq_fact_result = {}
 
-    groq_news_score = groq_news_result.get("score", 50)
-    groq_fact_score = groq_fact_result.get("score", 50)
+    groq_news_score = groq_news_result.get("score")
+    if groq_news_score is None: groq_news_score = 50
+    
+    groq_fact_score = groq_fact_result.get("score")
+    if groq_fact_score is None: groq_fact_score = 50
     
     # ── 1. Calculate Group Scores ───────────────────────────────────────
     # ── Fact Verification Signals ───────────────────────────────────────
     # We retrieve these globally so override rules can still apply them if needed
-    gfactcheck_score = factcheck_result.get("score_gfactcheck", 50)
-    wikidata_score   = factcheck_result.get("score_wikidata",   50)
-    fever_score      = factcheck_result.get("score_fever",      50)
+    gfactcheck_score = factcheck_result.get("score_gfactcheck")
+    if gfactcheck_score is None: gfactcheck_score = 50
+    
+    wikidata_score   = factcheck_result.get("score_wikidata")
+    if wikidata_score is None: wikidata_score = 50
+    
+    fever_score      = factcheck_result.get("score_fever")
+    if fever_score is None: fever_score = 50
 
     # ── URL INPUT — only Content + Source ───────────────────────────────
 
@@ -137,7 +145,8 @@ def compute_final_score(
     gfact_similarity = gfact_details.get("similarity", 0.0)
 
     # Groq News Check overrides
-    gn_score        = groq_news_result.get("score", 50)
+    gn_score        = groq_news_result.get("score")
+    if gn_score is None: gn_score = 50
     gn_misinfo      = groq_news_result.get("misinformation_pattern", False)
     gn_plausibility = groq_news_result.get("plausibility", "medium")
 
@@ -158,7 +167,8 @@ def compute_final_score(
     # Groq Fact Check overrides
     groq_verdict    = groq_fact_result.get("verdict", "unverifiable")
     groq_confidence = groq_fact_result.get("confidence", "low")
-    groq_score      = groq_fact_result.get("score", 50)
+    groq_score      = groq_fact_result.get("score")
+    if groq_score is None: groq_score = 50
 
     if groq_confidence == "high":
         if groq_score <= 25:

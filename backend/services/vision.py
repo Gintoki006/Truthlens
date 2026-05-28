@@ -6,6 +6,7 @@ import httpx
 
 logger = logging.getLogger(__name__)
 
+GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 
 EXTRACTION_PROMPT = """You are an expert news analyst and computer vision assistant.
@@ -17,8 +18,8 @@ Return ONLY raw JSON with the following keys:
   "main_claims": ["Claim 1", "Claim 2"],
   "entities": ["Entity 1", "Entity 2"],
   "emotional_tone": "neutral/angry/fearful/etc",
-  "manipulation_tactics": ["clickbait", "appeal to emotion", "none", etc],
-  "credibility_red_flags": ["poor grammar", "no source", "suspicious URL", "none"]
+  "manipulation_tactics": ["clickbait", "appeal to emotion", "none"],
+  "credibility_red_flags": ["list any visual red flags like 'poor grammar', 'no source', 'fake UI elements', etc. Return an empty array [] if none."]
 }
 """
 
@@ -50,24 +51,26 @@ async def analyze_image(image_bytes: bytes, filename: str) -> dict:
     }
 
     payload = {
-        "model": "qwen/qwen2.5-vl-32b-instruct",
+        "model": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
         "messages": [{
             "role": "user",
             "content": [
                 {"type": "image_url", "image_url": {"url": f"data:{mime_type};base64,{b64_image}"}},
                 {"type": "text", "text": EXTRACTION_PROMPT}
             ]
-        }],
-        "temperature": 0,
-        "response_format": {"type": "json_object"}
+        }]
     }
 
     try:
-        async with httpx.AsyncClient(timeout=30.0) as client:
+        async with httpx.AsyncClient(timeout=45.0) as client:
             resp = await client.post(OPENROUTER_URL, headers=headers, json=payload)
             resp.raise_for_status()
             
-            raw = resp.json()["choices"][0]["message"]["content"].strip()
+            resp_json = resp.json()
+            if "choices" not in resp_json:
+                raise ValueError(f"OpenRouter returned unexpected response: {resp_json}")
+                
+            raw = resp_json["choices"][0]["message"]["content"].strip()
             
             # Clean up potential markdown code blocks
             if raw.startswith("```json"):

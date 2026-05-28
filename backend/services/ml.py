@@ -77,10 +77,10 @@ def load_models():
         _HF_HEADERS = {"Content-Type": "application/json"}
         if _HF_API_TOKEN:
             _HF_HEADERS["Authorization"] = f"Bearer {_HF_API_TOKEN}"
-            print(f"  [OK]   RoBERTa → Cloud (HF Inference API) | model={_HF_MODEL_NAME} | auth=YES")
+            print(f"  [OK]   RoBERTa -> Cloud (HF Inference API) | model={_HF_MODEL_NAME} | auth=YES")
         else:
             print(
-                f"  [WARN] RoBERTa → Cloud (HF Inference API) | model={_HF_MODEL_NAME} | auth=NO\n"
+                f"  [WARN] RoBERTa -> Cloud (HF Inference API) | model={_HF_MODEL_NAME} | auth=NO\n"
                 f"         HF_API_TOKEN is not set — anonymous requests are heavily rate-limited.\n"
                 f"         Get a free token at https://huggingface.co/settings/tokens and add\n"
                 f"         HF_API_TOKEN=<token> to your .env file.\n"
@@ -97,11 +97,11 @@ def load_models():
         try:
             _tfidf_vectorizer = joblib.load(tfidf_path)
             _lr_model         = joblib.load(lr_path)
-            print("  [OK]   LR Model → Local (TF-IDF + Logistic Regression) | status=LOADED")
+            print("  [OK]   LR Model -> Local (TF-IDF + Logistic Regression) | status=LOADED")
         except Exception as e:
-            print(f"  [WARN] LR Model → Local | status=FAILED | reason={e}")
+            print(f"  [WARN] LR Model -> Local | status=FAILED | reason={e}")
     else:
-        print(f"  [WARN] LR Model → Local | status=NOT FOUND | path={MODELS_DIR} | will use RoBERTa only")
+        print(f"  [WARN] LR Model -> Local | status=NOT FOUND | path={MODELS_DIR} | will use RoBERTa only")
 
     _models_loaded = True
 
