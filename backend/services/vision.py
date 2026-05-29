@@ -6,7 +6,6 @@ import httpx
 
 logger = logging.getLogger(__name__)
 
-GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 
 EXTRACTION_PROMPT = """You are an expert news analyst and computer vision assistant.
@@ -23,83 +22,100 @@ Return ONLY raw JSON with the following keys:
 }
 """
 
-def get_mime_type(filename: str) -> str:
-    ext = filename.split('.')[-1].lower()
-    if ext in ['jpg', 'jpeg']:
-        return "image/jpeg"
-    elif ext == 'png':
-        return "image/png"
-    elif ext == 'webp':
-        return "image/webp"
-    elif ext == 'gif':
-        return "image/gif"
-    return "image/jpeg" # Default
 
-async def analyze_image(image_bytes: bytes, filename: str) -> dict:
+async def analyze_image(
+    image_bytes: bytes,
+    mime_type: str = "image/jpeg",
+    context_text: str | None = None,
+) -> dict:
+    """
+    Analyze an image using OpenRouter vision API.
+
+    Args:
+        image_bytes:  Raw bytes of the image.
+        mime_type:    MIME type of the image (e.g. 'image/jpeg', 'image/png').
+        context_text: Optional surrounding text (e.g. OG description from the page
+                      the image was extracted from). Appended to the prompt to
+                      give the LLM additional context.
+
+    Returns:
+        dict with keys: extracted_text, main_claims, entities,
+                        emotional_tone, manipulation_tactics, credibility_red_flags
+    """
     openrouter_key = os.getenv("OPENROUTER_API_KEY")
     if not openrouter_key:
         raise ValueError("OPENROUTER_API_KEY not configured")
 
-    b64_image = base64.b64encode(image_bytes).decode('utf-8')
-    mime_type = get_mime_type(filename)
+    b64_image = base64.b64encode(image_bytes).decode("utf-8")
+
+    # Build the text prompt, optionally injecting surrounding page context
+    prompt_text = EXTRACTION_PROMPT
+    if context_text:
+        prompt_text += (
+            f"\n\nADDITIONAL CONTEXT (from the page this image was found on):\n{context_text[:500]}"
+        )
 
     headers = {
         "Authorization": f"Bearer {openrouter_key}",
         "Content-Type": "application/json",
         "HTTP-Referer": "http://localhost:3000",
-        "X-Title": "TruthLens"
+        "X-Title": "TruthLens",
     }
 
     payload = {
         "model": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
-        "messages": [{
-            "role": "user",
-            "content": [
-                {"type": "image_url", "image_url": {"url": f"data:{mime_type};base64,{b64_image}"}},
-                {"type": "text", "text": EXTRACTION_PROMPT}
-            ]
-        }]
+        "messages": [
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "image_url",
+                        "image_url": {"url": f"data:{mime_type};base64,{b64_image}"},
+                    },
+                    {"type": "text", "text": prompt_text},
+                ],
+            }
+        ],
     }
 
     try:
         async with httpx.AsyncClient(timeout=45.0) as client:
             resp = await client.post(OPENROUTER_URL, headers=headers, json=payload)
             resp.raise_for_status()
-            
+
             resp_json = resp.json()
             if "choices" not in resp_json:
                 raise ValueError(f"OpenRouter returned unexpected response: {resp_json}")
-                
+
             raw = resp_json["choices"][0]["message"]["content"].strip()
-            
-            # Clean up potential markdown code blocks
+
+            # Strip potential markdown code fences
             if raw.startswith("```json"):
                 raw = raw[7:]
             elif raw.startswith("```"):
                 raw = raw[3:]
-                
             if raw.endswith("```"):
                 raw = raw[:-3]
-                
+
             result = json.loads(raw.strip())
-            logger.info(f"[VISION] Successfully analyzed image {filename}")
+            logger.info("[VISION] Successfully analyzed image")
             return result
 
     except Exception as e:
         logger.error(f"[VISION] Failed to analyze image: {e}")
-        # Try to extract raw from resp if available and json failed to parse
+        # Try to surface whatever partial text the model returned
         try:
-            if 'raw' in locals() and raw:
-                logger.warning(f"Returning partial/raw text: {raw[:100]}...")
+            if "raw" in locals() and raw:
+                logger.warning(f"[VISION] Returning partial/raw text: {raw[:100]}...")
                 return {
                     "extracted_text": raw,
                     "main_claims": [],
                     "entities": [],
                     "emotional_tone": "unknown",
                     "manipulation_tactics": [],
-                    "credibility_red_flags": [f"Failed to parse JSON: {e}"]
+                    "credibility_red_flags": [f"Failed to parse JSON: {e}"],
                 }
         except Exception:
             pass
-            
+
         raise ValueError(f"Vision API failed: {str(e)}")

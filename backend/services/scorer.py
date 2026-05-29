@@ -149,15 +149,16 @@ def compute_final_score(
     if gn_score is None: gn_score = 50
     gn_misinfo      = groq_news_result.get("misinformation_pattern", False)
     gn_plausibility = groq_news_result.get("plausibility", "medium")
+    gn_corroboration = groq_news_result.get("news_corroboration", "not_found")
 
-    if gn_score <= 30 and gn_plausibility == "low":
+    if gn_score <= 30 and (gn_plausibility in ["low", "medium"] or gn_corroboration == "contradicted"):
         if final_score > 35:
             final_score = min(final_score, 35)
             override_applied = True
-            score_override_reason = "Semantic Analysis: Matches known misinformation/conspiracy pattern"
+            score_override_reason = "Semantic Analysis: Matches known misinformation/conspiracy pattern or contradicted by news"
             logger.info(f"[SCORER] Groq News override — capped at 35 (score={gn_score})")
 
-    elif not gn_misinfo and gn_plausibility == "high" and gn_score >= 80:
+    elif not gn_misinfo and (gn_plausibility in ["high", "medium"] or gn_corroboration == "confirmed") and gn_score >= 80:
         if final_score < 75:
             final_score = max(final_score, 75)
             override_applied = True
@@ -170,7 +171,7 @@ def compute_final_score(
     groq_score      = groq_fact_result.get("score")
     if groq_score is None: groq_score = 50
 
-    if groq_confidence == "high":
+    if groq_confidence in ["high", "medium"]:
         if groq_score <= 25:
             # Groq is highly confident this is false
             if final_score > 35:

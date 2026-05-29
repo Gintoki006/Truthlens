@@ -205,16 +205,20 @@ export default function ResultsPage() {
 
   // Reconstruct groups if they were fetched flat from Supabase
   // Reconstruct groups if they were fetched flat from Supabase
+  // Reconstruct groups if they were fetched flat from Supabase
   const groups = analysis.groups || {
     content: {
-      score: analysis.text_only_formula ? Math.round((analysis.score_nlp * (0.40)) + (analysis.score_ml * (0.60))) : Math.round((analysis.score_nlp * 0.31) + (analysis.score_ml * 0.69)),
+      score: analysis.text_only_formula 
+        ? Math.round((analysis.score_nlp * 0.20) + (analysis.score_roberta * 0.30) + (analysis.score_lr * 0.15) + ((analysis.factcheck_details?.score_groq_news || analysis.score_groq_news || 50) * 0.35))
+        : Math.round((analysis.score_nlp * 0.20) + (analysis.score_roberta * 0.30) + (analysis.score_lr * 0.15) + ((analysis.factcheck_details?.score_groq_news || analysis.score_groq_news || 50) * 0.35)),
       weight: analysis.text_only_formula ? (analysis.crosscheck_fallback ? 0.60 : 0.50) : 0.65,
       sub_signals: {
         nlp: analysis.score_nlp || 0,
         roberta: analysis.score_roberta || 0,
         lr_model: analysis.score_lr || 0,
         ml_ensemble: analysis.score_ml || 0,
-        ...(analysis.factcheck_details?.score_groq_news !== undefined ? { semantic_analysis: analysis.factcheck_details.score_groq_news } : {})
+        ...(analysis.factcheck_details?.score_groq_news !== undefined ? { semantic_analysis: analysis.factcheck_details.score_groq_news } : 
+           (analysis.score_groq_news !== undefined ? { semantic_analysis: analysis.score_groq_news } : {}))
       }
     },
     source: {
@@ -698,7 +702,7 @@ export default function ResultsPage() {
                 <div className="mb-12">
                   {analysis.image_url && (
                     <div className="border-[3px] border-[#1c1b1b] dark:border-stone-100 p-2 bg-white dark:bg-stone-900 shadow-[6px_6px_0px_#1c1b1b] mb-12 w-full mx-auto">
-                      <img src={analysis.image_url} alt="Analyzed screenshot" className="w-full h-auto object-contain max-h-[600px]" />
+                      <img src={analysis.image_url} alt="Post Analysis" className="w-full h-auto object-contain max-h-[600px]" />
                     </div>
                   )}
                   <ExtractedClaimsPanel 

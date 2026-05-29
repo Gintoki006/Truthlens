@@ -6,21 +6,27 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '@/context/AuthContext';
 
 /**
- * Analysis input form with URL / Text / Image toggle.
+ * Analysis input form with URL / Text / Post (image or social link) toggle.
  * Styled to match the editorial newspaper aesthetic.
- * Submits to the Next.js API proxy → FastAPI backend.
+ * Submits to the Next.js API proxy -> FastAPI backend.
  */
 export default function AnalyzeForm() {
-  const [mode, setMode] = useState('url'); // 'url' | 'text' | 'image'
+  const [mode, setMode] = useState('url'); // 'url' | 'text' | 'post'
+
+  // Post mode sub-state: 'file' | 'link'
+  const [postSubMode, setPostSubMode] = useState('file');
+
   const [input, setInput] = useState('');
+  const [postLinkInput, setPostLinkInput] = useState('');
   const [imageFile, setImageFile] = useState(null);
   const [dragActive, setDragActive] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [loadingStage, setLoadingStage] = useState(''); // granular loading message
   const [error, setError] = useState(null);
   const router = useRouter();
   const { user } = useAuth();
 
-  // Drag & Drop Handlers
+  // ── Drag & Drop Handlers ────────────────────────────────────────────────
   const handleDrag = (e) => {
     e.preventDefault();
     e.stopPropagation();
@@ -61,38 +67,48 @@ export default function AnalyzeForm() {
     setImageFile(file);
   };
 
+  // ── Validation helpers ──────────────────────────────────────────────────
+  const isValidUrl = (str) => {
+    try { new URL(str); return true; } catch { return false; }
+  };
+
+  // ── Submit ──────────────────────────────────────────────────────────────
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError(null);
 
-    // Enforce login to analyze
     if (!user) {
       router.push('/login?redirect=/');
       return;
     }
 
-    if (mode === 'image' && !imageFile) {
-      setError('Please select or drop an image to analyze.');
-      return;
-    }
-
-    if (mode !== 'image' && !input.trim()) {
-      setError('Please enter a URL or article text to analyze.');
-      return;
-    }
-
-    if (mode === 'text' && input.trim().length < 20) {
-      setError('Text must be at least 20 characters for meaningful analysis.');
-      return;
-    }
-
-    if (mode === 'url') {
-      try {
-        new URL(input.trim());
-      } catch {
-        setError(
-          'Please enter a valid URL (e.g., https://example.com/article).'
-        );
+    // ── Validation ──────────────────────────────────────────────────────
+    if (mode === 'post') {
+      if (postSubMode === 'file' && !imageFile) {
+        setError('Please select or drop an image to analyze.');
+        return;
+      }
+      if (postSubMode === 'link') {
+        if (!postLinkInput.trim()) {
+          setError('Please enter a URL to a social post or image.');
+          return;
+        }
+        if (!isValidUrl(postLinkInput.trim())) {
+          setError('Please enter a valid URL (e.g., https://twitter.com/...).');
+          return;
+        }
+      }
+    } else if (mode !== 'image') {
+      if (!input.trim()) {
+        setError('Please enter a URL or article text to analyze.');
+        return;
+      }
+      if (mode === 'text' && input.trim().length < 20) {
+        setError('Text must be at least 20 characters for meaningful analysis.');
+        return;
+      }
+      if (mode === 'url' && !isValidUrl(input.trim())) {
+        setError('Please enter a valid URL (e.g., https://example.com/article).');
         return;
       }
     }
@@ -103,12 +119,26 @@ export default function AnalyzeForm() {
       let body;
       let headers = {};
 
-      if (mode === 'image') {
+      if (mode === 'post' && postSubMode === 'file') {
+        // ── file upload ──────────────────────────────────────────────────
+        setLoadingStage('Uploading image...');
         body = new FormData();
         body.append('image', imageFile);
         if (user?.id) body.append('user_id', user.id);
-        // Do NOT set Content-Type for FormData, fetch does it automatically with boundary
+        setTimeout(() => setLoadingStage('Analyzing image content...'), 2000);
+      } else if (mode === 'post' && postSubMode === 'link') {
+        // ── post URL ─────────────────────────────────────────────────────
+        setLoadingStage('Fetching post content...');
+        headers = { 'Content-Type': 'application/json' };
+        body = JSON.stringify({
+          post_url: postLinkInput.trim(),
+          user_id: user?.id || undefined,
+        });
+        setTimeout(() => setLoadingStage('Extracting image...'), 3000);
+        setTimeout(() => setLoadingStage('Analyzing post content...'), 6000);
       } else {
+        // ── url / text ───────────────────────────────────────────────────
+        setLoadingStage('Analyzing...');
         headers = { 'Content-Type': 'application/json' };
         body = JSON.stringify({
           ...(mode === 'url' ? { url: input.trim() } : { text: input.trim() }),
@@ -116,11 +146,7 @@ export default function AnalyzeForm() {
         });
       }
 
-      const res = await fetch('/api/analyze', {
-        method: 'POST',
-        headers,
-        body,
-      });
+      const res = await fetch('/api/analyze', { method: 'POST', headers, body });
 
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
@@ -135,7 +161,18 @@ export default function AnalyzeForm() {
       setError(err.message);
     } finally {
       setLoading(false);
+      setLoadingStage('');
     }
+  };
+
+  // ── Helper: mode reset ──────────────────────────────────────────────────
+  const switchMode = (m) => {
+    setMode(m);
+    setInput('');
+    setPostLinkInput('');
+    setImageFile(null);
+    setError(null);
+    setLoadingStage('');
   };
 
   return (
@@ -144,17 +181,12 @@ export default function AnalyzeForm() {
       <div className="flex items-center justify-center gap-0 mb-6">
         <button
           type="button"
-          onClick={() => {
-            setMode('url');
-            setInput('');
-            setError(null);
-          }}
+          onClick={() => switchMode('url')}
           className={`
             px-4 sm:px-5 py-2 text-[9px] sm:text-[10px] font-['Work_Sans'] font-bold uppercase tracking-[0.2em] transition-all duration-300 border border-slate-900 dark:border-stone-500
-            ${
-              mode === 'url'
-                ? 'bg-primary dark:bg-stone-100 text-on-primary dark:text-stone-900'
-                : 'bg-transparent text-slate-600 dark:text-stone-400 hover:text-slate-900 dark:hover:text-stone-100'
+            ${mode === 'url'
+              ? 'bg-primary dark:bg-stone-100 text-on-primary dark:text-stone-900'
+              : 'bg-transparent text-slate-600 dark:text-stone-400 hover:text-slate-900 dark:hover:text-stone-100'
             }
           `}
         >
@@ -164,66 +196,54 @@ export default function AnalyzeForm() {
             <span className="sm:hidden">URL</span>
           </span>
         </button>
+
         <button
           type="button"
-          onClick={() => {
-            setMode('text');
-            setInput('');
-            setError(null);
-          }}
+          onClick={() => switchMode('text')}
           className={`
             px-4 sm:px-5 py-2 text-[9px] sm:text-[10px] font-['Work_Sans'] font-bold uppercase tracking-[0.2em] transition-all duration-300 border border-l-0 border-slate-900 dark:border-stone-500
-            ${
-              mode === 'text'
-                ? 'bg-primary dark:bg-stone-100 text-on-primary dark:text-stone-900'
-                : 'bg-transparent text-slate-600 dark:text-stone-400 hover:text-slate-900 dark:hover:text-stone-100'
+            ${mode === 'text'
+              ? 'bg-primary dark:bg-stone-100 text-on-primary dark:text-stone-900'
+              : 'bg-transparent text-slate-600 dark:text-stone-400 hover:text-slate-900 dark:hover:text-stone-100'
             }
           `}
         >
           <span className="flex items-center gap-2">
-            <span className="material-symbols-outlined text-[14px]">
-              article
-            </span>
+            <span className="material-symbols-outlined text-[14px]">article</span>
             <span className="hidden sm:inline">Paste Text</span>
             <span className="sm:hidden">Text</span>
           </span>
         </button>
+
         <button
           type="button"
-          onClick={() => {
-            setMode('image');
-            setImageFile(null);
-            setError(null);
-          }}
+          onClick={() => switchMode('post')}
           className={`
             px-4 sm:px-5 py-2 text-[9px] sm:text-[10px] font-['Work_Sans'] font-bold uppercase tracking-[0.2em] transition-all duration-300 border border-l-0 border-slate-900 dark:border-stone-500
-            ${
-              mode === 'image'
-                ? 'bg-primary dark:bg-stone-100 text-on-primary dark:text-stone-900'
-                : 'bg-transparent text-slate-600 dark:text-stone-400 hover:text-slate-900 dark:hover:text-stone-100'
+            ${mode === 'post'
+              ? 'bg-primary dark:bg-stone-100 text-on-primary dark:text-stone-900'
+              : 'bg-transparent text-slate-600 dark:text-stone-400 hover:text-slate-900 dark:hover:text-stone-100'
             }
           `}
         >
           <span className="flex items-center gap-2">
-            <span className="material-symbols-outlined text-[14px]">
-              image
-            </span>
-            <span className="hidden sm:inline">Screenshot</span>
-            <span className="sm:hidden">Image</span>
+            <span className="material-symbols-outlined text-[14px]">newsmode</span>
+            <span className="hidden sm:inline">Post / Image</span>
+            <span className="sm:hidden">Post</span>
           </span>
         </button>
       </div>
 
-      {/* Input field — editorial style */}
+      {/* Input field */}
       <div className="relative">
         <AnimatePresence mode="wait">
+
+          {/* URL mode */}
           {mode === 'url' && (
             <motion.div
               key="url"
-              initial={{ opacity: 0, y: 8 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -8 }}
-              transition={{ duration: 0.2 }}
+              initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -8 }} transition={{ duration: 0.2 }}
             >
               <label className="block font-label-caps text-[10px] font-['Work_Sans'] font-bold uppercase tracking-[0.2em] text-slate-500 dark:text-stone-400 mb-2">
                 Article URL
@@ -247,23 +267,20 @@ export default function AnalyzeForm() {
                   {loading ? (
                     <>
                       <span className="material-symbols-outlined animate-spin text-[16px]">autorenew</span>
-                      Analyzing...
+                      {loadingStage || 'Analyzing...'}
                     </>
-                  ) : (
-                    'Analyze'
-                  )}
+                  ) : 'Analyze'}
                 </motion.button>
               </div>
             </motion.div>
           )}
 
+          {/* Text mode */}
           {mode === 'text' && (
             <motion.div
               key="text"
-              initial={{ opacity: 0, y: 8 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -8 }}
-              transition={{ duration: 0.2 }}
+              initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -8 }} transition={{ duration: 0.2 }}
             >
               <label className="block font-label-caps text-[10px] font-['Work_Sans'] font-bold uppercase tracking-[0.2em] text-slate-500 dark:text-stone-400 mb-2">
                 Article Text or Claim
@@ -288,90 +305,148 @@ export default function AnalyzeForm() {
                     <span className="material-symbols-outlined animate-spin text-[16px]">autorenew</span>
                     Analyzing...
                   </>
-                ) : (
-                  'Analyze Text'
-                )}
+                ) : 'Analyze Text'}
               </motion.button>
             </motion.div>
           )}
 
-          {mode === 'image' && (
+          {/* Post / Image mode */}
+          {mode === 'post' && (
             <motion.div
-              key="image"
-              initial={{ opacity: 0, y: 8 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -8 }}
-              transition={{ duration: 0.2 }}
+              key="post"
+              initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -8 }} transition={{ duration: 0.2 }}
             >
-              <label className="block font-label-caps text-[10px] font-['Work_Sans'] font-bold uppercase tracking-[0.2em] text-slate-500 dark:text-stone-400 mb-2">
-                Screenshot / Image Upload
+              <label className="block font-label-caps text-[10px] font-['Work_Sans'] font-bold uppercase tracking-[0.2em] text-slate-500 dark:text-stone-400 mb-3">
+                Social Post or Image
               </label>
-              
-              <div
-                className={`relative flex flex-col items-center justify-center p-8 border-2 border-dashed transition-all duration-300 cursor-pointer 
-                  ${
-                    dragActive
-                      ? 'border-primary bg-primary/5 dark:bg-stone-100/10'
-                      : 'border-slate-400 dark:border-stone-600 hover:border-slate-500 dark:hover:border-stone-400'
-                  }
-                  ${imageFile ? 'bg-slate-50 dark:bg-stone-800' : ''}
-                `}
-                onDragEnter={handleDrag}
-                onDragLeave={handleDrag}
-                onDragOver={handleDrag}
-                onDrop={handleDrop}
-                onClick={() => document.getElementById('imageUpload').click()}
-              >
-                <input
-                  id="imageUpload"
-                  type="file"
-                  accept="image/jpeg, image/png, image/webp"
-                  className="hidden"
-                  onChange={handleChange}
-                  disabled={loading}
-                />
-                
-                {imageFile ? (
-                  <div className="flex flex-col items-center text-center">
-                    <span className="material-symbols-outlined text-4xl text-primary dark:text-stone-300 mb-2">
-                      check_circle
-                    </span>
-                    <p className="font-body-md font-bold text-slate-800 dark:text-stone-200">
-                      {imageFile.name}
-                    </p>
-                    <p className="text-xs text-slate-500 dark:text-stone-400 mt-1">
-                      {(imageFile.size / (1024 * 1024)).toFixed(2)} MB
-                    </p>
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setImageFile(null);
-                      }}
-                      className="mt-6 px-5 py-2 text-[10px] uppercase tracking-[0.2em] font-bold border border-slate-300 hover:border-secondary hover:text-secondary dark:border-stone-600 dark:hover:border-red-400 dark:hover:text-red-400 transition-colors"
-                      disabled={loading}
-                    >
-                      Remove File
-                    </button>
-                  </div>
-                ) : (
-                  <div className="flex flex-col items-center text-center text-slate-500 dark:text-stone-400 py-4">
-                    <span className="material-symbols-outlined text-[40px] mb-3 opacity-80 text-slate-800 dark:text-stone-300">
-                      upload_file
-                    </span>
-                    <p className="font-body-md font-bold text-slate-800 dark:text-stone-300">
-                      Drag & Drop a screenshot here
-                    </p>
-                    <p className="text-[11px] mt-2 font-bold uppercase tracking-widest opacity-70">
-                      or click to browse (JPEG, PNG, WEBP)
-                    </p>
-                  </div>
-                )}
+
+              {/* Sub-mode toggle: file vs link */}
+              <div className="flex gap-0 mb-4">
+                <button
+                  type="button"
+                  onClick={() => { setPostSubMode('file'); setError(null); }}
+                  className={`px-4 py-1.5 text-[9px] font-['Work_Sans'] font-bold uppercase tracking-[0.2em] border transition-all duration-200
+                    ${postSubMode === 'file'
+                      ? 'bg-primary dark:bg-stone-100 text-on-primary dark:text-stone-900 border-primary dark:border-stone-100'
+                      : 'bg-transparent border-slate-400 dark:border-stone-600 text-slate-500 dark:text-stone-400 hover:text-slate-800'
+                    }`}
+                >
+                  <span className="flex items-center gap-1.5">
+                    <span className="material-symbols-outlined text-[12px]">upload_file</span>
+                    Upload File
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { setPostSubMode('link'); setImageFile(null); setError(null); }}
+                  className={`px-4 py-1.5 text-[9px] font-['Work_Sans'] font-bold uppercase tracking-[0.2em] border border-l-0 transition-all duration-200
+                    ${postSubMode === 'link'
+                      ? 'bg-primary dark:bg-stone-100 text-on-primary dark:text-stone-900 border-primary dark:border-stone-100'
+                      : 'bg-transparent border-slate-400 dark:border-stone-600 text-slate-500 dark:text-stone-400 hover:text-slate-800'
+                    }`}
+                >
+                  <span className="flex items-center gap-1.5">
+                    <span className="material-symbols-outlined text-[12px]">link</span>
+                    Paste Link
+                  </span>
+                </button>
               </div>
+
+              <AnimatePresence mode="wait">
+
+                {/* Upload file sub-mode */}
+                {postSubMode === 'file' && (
+                  <motion.div
+                    key="post-file"
+                    initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -6 }} transition={{ duration: 0.15 }}
+                  >
+                    <div
+                      className={`relative flex flex-col items-center justify-center p-8 border-2 border-dashed transition-all duration-300 cursor-pointer 
+                        ${dragActive
+                          ? 'border-primary bg-primary/5 dark:bg-stone-100/10'
+                          : 'border-slate-400 dark:border-stone-600 hover:border-slate-500 dark:hover:border-stone-400'
+                        }
+                        ${imageFile ? 'bg-slate-50 dark:bg-stone-800' : ''}
+                      `}
+                      onDragEnter={handleDrag}
+                      onDragLeave={handleDrag}
+                      onDragOver={handleDrag}
+                      onDrop={handleDrop}
+                      onClick={() => document.getElementById('imageUpload').click()}
+                    >
+                      <input
+                        id="imageUpload"
+                        type="file"
+                        accept="image/jpeg, image/png, image/webp"
+                        className="hidden"
+                        onChange={handleChange}
+                        disabled={loading}
+                      />
+
+                      {imageFile ? (
+                        <div className="flex flex-col items-center text-center">
+                          <span className="material-symbols-outlined text-4xl text-primary dark:text-stone-300 mb-2">check_circle</span>
+                          <p className="font-body-md font-bold text-slate-800 dark:text-stone-200">{imageFile.name}</p>
+                          <p className="text-xs text-slate-500 dark:text-stone-400 mt-1">
+                            {(imageFile.size / (1024 * 1024)).toFixed(2)} MB
+                          </p>
+                          <button
+                            type="button"
+                            onClick={(e) => { e.stopPropagation(); setImageFile(null); }}
+                            className="mt-6 px-5 py-2 text-[10px] uppercase tracking-[0.2em] font-bold border border-slate-300 hover:border-secondary hover:text-secondary dark:border-stone-600 dark:hover:border-red-400 dark:hover:text-red-400 transition-colors"
+                            disabled={loading}
+                          >
+                            Remove File
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="flex flex-col items-center text-center text-slate-500 dark:text-stone-400 py-4">
+                          <span className="material-symbols-outlined text-[40px] mb-3 opacity-80 text-slate-800 dark:text-stone-300">upload_file</span>
+                          <p className="font-body-md font-bold text-slate-800 dark:text-stone-300">
+                            Drag & Drop a screenshot or post image here
+                          </p>
+                          <p className="text-[11px] mt-2 font-bold uppercase tracking-widest opacity-70">
+                            or click to browse (JPEG, PNG, WEBP · max 10 MB)
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                  </motion.div>
+                )}
+
+                {/* Paste link sub-mode */}
+                {postSubMode === 'link' && (
+                  <motion.div
+                    key="post-link"
+                    initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -6 }} transition={{ duration: 0.15 }}
+                  >
+                    <div className="p-4 border-2 border-slate-300 dark:border-stone-600 bg-slate-50 dark:bg-stone-900/40">
+                      <p className="text-[10px] uppercase tracking-widest font-bold text-slate-500 dark:text-stone-400 mb-3">
+                        Supported: Twitter/X · Reddit · News articles · Direct image links
+                      </p>
+                      <input
+                        type="url"
+                        value={postLinkInput}
+                        onChange={(e) => setPostLinkInput(e.target.value)}
+                        placeholder="https://twitter.com/... or https://i.imgur.com/abc.jpg"
+                        className="w-full bg-transparent border-b-2 border-primary dark:border-stone-500 dark:text-stone-100 py-2 font-body-md focus:outline-none placeholder:text-slate-400 dark:placeholder:text-stone-600 transition-colors"
+                        disabled={loading}
+                      />
+                      <p className="mt-2 text-[9px] text-slate-400 dark:text-stone-500">
+                        ⚠ Instagram and Facebook may require login — link extraction might not work.
+                      </p>
+                    </div>
+                  </motion.div>
+                )}
+
+              </AnimatePresence>
 
               <motion.button
                 type="submit"
-                disabled={loading || !imageFile}
+                disabled={loading || (postSubMode === 'file' ? !imageFile : !postLinkInput.trim())}
                 whileHover={{ scale: loading ? 1 : 1.02 }}
                 whileTap={{ scale: loading ? 1 : 0.98 }}
                 className="mt-4 bg-primary dark:bg-stone-100 text-on-primary dark:text-stone-900 w-full py-4 font-['Work_Sans'] font-bold uppercase tracking-widest hover:bg-slate-800 dark:hover:bg-stone-300 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-3"
@@ -379,14 +454,15 @@ export default function AnalyzeForm() {
                 {loading ? (
                   <>
                     <span className="material-symbols-outlined animate-spin text-[16px]">autorenew</span>
-                    Analyzing Image...
+                    {loadingStage || 'Analyzing...'}
                   </>
                 ) : (
-                  'Analyze Screenshot'
+                  postSubMode === 'link' ? 'Analyze Post' : 'Analyze Image'
                 )}
               </motion.button>
             </motion.div>
           )}
+
         </AnimatePresence>
       </div>
 
@@ -400,9 +476,7 @@ export default function AnalyzeForm() {
             className="overflow-hidden"
           >
             <p className="mt-3 text-sm text-secondary dark:text-red-400 flex items-center gap-2 font-['Work_Sans']">
-              <span className="material-symbols-outlined text-[16px]">
-                warning
-              </span>
+              <span className="material-symbols-outlined text-[16px]">warning</span>
               {error}
             </p>
           </motion.div>

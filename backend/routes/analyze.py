@@ -1,8 +1,14 @@
 """
 POST /api/analyze — Main analysis endpoint.
 
-Accepts: { url?, text?, user_id? }
-Runs all five signals in parallel, fuses scores, generates explanation,
+Accepts: { url?, text?, post_url?, user_id? }
+  url:      Article URL to scrape and analyze.
+  text:     Raw text / claim to analyze.
+  post_url: Social-media or direct-image URL — fetched by post_extractor,
+            then routed through vision analysis.
+  user_id:  Optional authenticated user ID.
+
+Runs all signals in parallel, fuses scores, generates explanation,
 stores result in Supabase, returns full result JSON.
 """
 
@@ -22,6 +28,7 @@ executor = ThreadPoolExecutor(max_workers=6)
 class AnalyzeRequest(BaseModel):
     url: str | None = None
     text: str | None = None
+    post_url: str | None = None
     user_id: str | None = None
 
 
@@ -62,6 +69,7 @@ class AnalyzeResponse(BaseModel):
     score_override_reason: str | None = None
     groups: dict = {}
     image_url: str | None = None
+    source_url: str | None = None
     ocr_text: str | None = None
     visual_flags: dict = {}
 
@@ -69,58 +77,150 @@ class AnalyzeResponse(BaseModel):
 @router.post("/analyze", response_model=AnalyzeResponse)
 async def analyze(request: Request):
     content_type = request.headers.get('content-type', '')
-    req_url = req_text = req_user_id = image_bytes = image_filename = None
+    req_url = req_text = req_user_id = req_post_url = None
+    image_bytes = image_filename = image_mime_type = None
+
     if 'application/json' in content_type:
         data = await request.json()
-        req_url, req_text, req_user_id = data.get('url'), data.get('text'), data.get('user_id')
+        req_url      = data.get('url')
+        req_text     = data.get('text')
+        req_user_id  = data.get('user_id')
+        req_post_url = data.get('post_url')
     elif 'multipart/form-data' in content_type or 'application/x-www-form-urlencoded' in content_type:
         form = await request.form()
-        req_url, req_text, req_user_id = form.get('url'), form.get('text'), form.get('user_id')
+        req_url     = form.get('url')
+        req_text    = form.get('text')
+        req_user_id = form.get('user_id')
         image = form.get('image')
         if image and hasattr(image, 'filename') and image.filename:
             image_bytes, image_filename = await image.read(), image.filename
-    return await process_analysis(req_url, req_text, req_user_id, image_bytes, image_filename)
+            # Infer MIME from filename for the file upload path
+            from services.storage import _mime_from_filename
+            image_mime_type = _mime_from_filename(image_filename)
 
-async def process_analysis(req_url: str | None, req_text: str | None, req_user_id: str | None, image_bytes: bytes | None = None, image_filename: str | None = None) -> AnalyzeResponse:
-    if not req_url and not req_text and not image_bytes:
-        raise HTTPException(status_code=400, detail="Provide either a URL, text, or image to analyze.")
+    return await process_analysis(
+        req_url, req_text, req_user_id,
+        image_bytes=image_bytes,
+        image_filename=image_filename,
+        image_mime_type=image_mime_type,
+        req_post_url=req_post_url,
+    )
+
+async def process_analysis(
+    req_url: str | None,
+    req_text: str | None,
+    req_user_id: str | None,
+    image_bytes: bytes | None = None,
+    image_filename: str | None = None,
+    image_mime_type: str | None = None,
+    req_post_url: str | None = None,
+) -> AnalyzeResponse:
+    if not req_url and not req_text and not image_bytes and not req_post_url:
+        raise HTTPException(status_code=400, detail="Provide either a URL, text, image, or post_url to analyze.")
 
     loop = asyncio.get_event_loop()
 
     # ── Step 1: Get article content ─────────────────────────────────────
     publish_date = None
-    image_url = None
-    ocr_text = None
+    image_url    = None
+    source_url   = None
+    ocr_text     = None
     visual_flags = {}
 
+    # ── Path: file upload ────────────────────────────────────────────────
     if image_bytes:
         from services.vision import analyze_image
         from services.storage import upload_image_to_storage
-        
+
         input_type = "image"
+        mime = image_mime_type or "image/jpeg"
+
         # Run vision and storage concurrently
-        image_url_task = asyncio.create_task(upload_image_to_storage(image_bytes, image_filename))
-        vision_task = asyncio.create_task(analyze_image(image_bytes, image_filename))
-        
+        image_url_task = asyncio.create_task(upload_image_to_storage(image_bytes, image_filename or "upload.jpg"))
+        vision_task    = asyncio.create_task(analyze_image(image_bytes, mime_type=mime))
+
         image_url, vision_result = await asyncio.gather(image_url_task, vision_task)
-        
-        ocr_text = vision_result.get("extracted_text", "")
+
+        ocr_text     = vision_result.get("extracted_text", "")
         visual_flags = vision_result
-        
+
         claims = vision_result.get("main_claims", [])
         article_body = " ".join(claims) if claims else ocr_text
-        
+
         if claims:
             article_title = claims[0][:100] + ("..." if len(claims[0]) > 100 else "")
         elif ocr_text:
             article_title = ocr_text[:100] + ("..." if len(ocr_text) > 100 else "")
         else:
-            article_title = "Screenshot Analysis"
+            article_title = "Post Analysis"
         source_domain = None
         authors = []
-        
+
         if not article_body or len(article_body) < 10:
             raise HTTPException(status_code=422, detail="Could not extract sufficient text or claims from the image.")
+
+    # ── Path: post_url (social media / direct image link) ───────────────
+    elif req_post_url:
+        from services.post_extractor import fetch_post_content
+        from services.vision import analyze_image
+        from services.storage import upload_image_bytes_to_storage
+
+        source_url = req_post_url
+        input_type = "image"  # always treated as image input type
+
+        try:
+            extracted = await fetch_post_content(req_post_url)
+        except ValueError as e:
+            raise HTTPException(status_code=422, detail=str(e))
+
+        if extracted["text_only"]:
+            # ── Path B2: no image found — treat extracted text as plain text ──
+            context = extracted["context_text"]
+            if not context or len(context) < 20:
+                raise HTTPException(
+                    status_code=422,
+                    detail="Could not extract sufficient content from this URL."
+                )
+            article_title = context[:100] + ("..." if len(context) > 100 else "")
+            article_body  = context
+            source_domain = None
+            authors       = []
+            input_type    = "text"  # downgrade to text path, no vision step
+        else:
+            # ── Path A / B1: image bytes available ───────────────────────
+            img_bytes  = extracted["image_bytes"]
+            mime       = extracted["mime_type"] or "image/jpeg"
+            context    = extracted.get("context_text")
+
+            # Upload and analyze concurrently
+            image_url_task = asyncio.create_task(upload_image_bytes_to_storage(img_bytes, mime))
+            vision_task    = asyncio.create_task(analyze_image(img_bytes, mime_type=mime, context_text=context))
+
+            image_url, vision_result = await asyncio.gather(image_url_task, vision_task)
+
+            ocr_text     = vision_result.get("extracted_text", "")
+            visual_flags = vision_result
+
+            claims = vision_result.get("main_claims", [])
+            article_body = " ".join(claims) if claims else ocr_text
+
+            if claims:
+                article_title = claims[0][:100] + ("..." if len(claims[0]) > 100 else "")
+            elif ocr_text:
+                article_title = ocr_text[:100] + ("..." if len(ocr_text) > 100 else "")
+            elif context:
+                article_title = context[:100] + ("..." if len(context) > 100 else "")
+            else:
+                article_title = "Post Analysis"
+
+            source_domain = None
+            authors       = []
+
+            if not article_body or len(article_body) < 10:
+                raise HTTPException(
+                    status_code=422,
+                    detail="Could not extract sufficient text or claims from the post."
+                )
             
     elif req_url:
         from services.scraper import scrape_article
@@ -197,7 +297,7 @@ async def process_analysis(req_url: str | None, req_text: str | None, req_user_i
     from services.groq_fact_check import groq_fact_check
 
     # Use the article title if available and not a generic placeholder, else fallback to body.
-    search_query = article_title if article_title and article_title != "Screenshot Analysis" else article_body[:120]
+    search_query = article_title if article_title and article_title not in {"Post Analysis", "Screenshot Analysis"} else article_body[:120]
     
     try:
         nlp_future = loop.run_in_executor(executor, compute_nlp_score, article_body)
@@ -307,6 +407,7 @@ async def process_analysis(req_url: str | None, req_text: str | None, req_user_i
             "explanation": explanation,
             "sentences": sentences,
             "image_url": image_url,
+            "source_url": source_url,
             "ocr_text": ocr_text,
             "visual_flags": visual_flags,
         }
@@ -366,6 +467,7 @@ async def process_analysis(req_url: str | None, req_text: str | None, req_user_i
         source_info=source_result,
         nlp_details=nlp_result,
         image_url=image_url,
+        source_url=source_url,
         ocr_text=ocr_text,
         visual_flags=visual_flags,
     )
