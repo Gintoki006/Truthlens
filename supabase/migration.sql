@@ -193,9 +193,10 @@ ALTER TABLE analysis ADD COLUMN IF NOT EXISTS was_translated BOOLEAN DEFAULT FAL
 -- ============================================================================
 
 ALTER TABLE analysis ADD COLUMN IF NOT EXISTS image_url TEXT;
+ALTER TABLE analysis ADD COLUMN IF NOT EXISTS source_url TEXT;
 ALTER TABLE analysis ADD COLUMN IF NOT EXISTS ocr_text TEXT;
 ALTER TABLE analysis ADD COLUMN IF NOT EXISTS visual_flags JSONB;
 
 ALTER TABLE analysis DROP CONSTRAINT IF EXISTS analysis_input_type_check;
 ALTER TABLE analysis ADD CONSTRAINT analysis_input_type_check
-  CHECK (input_type IN ('url', 'text', 'image'));
+  CHECK (input_type IN ('url', 'text', 'image', 'post'));

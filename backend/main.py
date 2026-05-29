@@ -63,12 +63,13 @@ ALLOWED_ORIGINS = [
 app.add_middleware(
     CORSMiddleware,
     allow_origins=ALLOWED_ORIGINS,
+    allow_origin_regex=r"chrome-extension://.*",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-print(f"CORS initialized with origins: {ALLOWED_ORIGINS}")
+print(f"CORS initialized with origins: {ALLOWED_ORIGINS} and chrome-extension://* regex")
 
 # ── Routes ──────────────────────────────────────────────────────────────────
 from routes.analyze import router as analyze_router

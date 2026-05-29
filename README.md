@@ -1,6 +1,6 @@
 # TruthLens
 
-TruthLens is a full-stack AI-powered fake news detection system. It analyzes news articles, factual claims, and screenshot images — in any language — to determine their authenticity. It returns an explainable confidence score that draws on natural language processing, machine learning classification, semantic analysis, real-world corroboration, professional fact-checking databases, and multimodal vision AI — all evaluated in parallel.
+TruthLens is a full-stack AI-powered fake news detection system. It analyzes news articles, factual claims, screenshot images, and social media post links — in any language — to determine their authenticity. It returns an explainable confidence score that draws on natural language processing, machine learning classification, semantic analysis, real-world corroboration, professional fact-checking databases, and multimodal vision AI — all evaluated in parallel.
 
 ---
 
@@ -21,8 +21,9 @@ TruthLens is a full-stack AI-powered fake news detection system. It analyzes new
 
 ## Features
 
-- **Multi-mode input** — Analyze news by submitting a URL (automatically scraped), pasting raw text or a claim, or uploading a screenshot image.
-- **Screenshot / image fact-check** — Upload a social media screenshot or news image. Qwen2.5-VL-32B (via OpenRouter) extracts the text, identifies key claims, entities, emotional tone, and visual manipulation signals (urgency framing, fake authority cues, ALL-CAPS headlines). The extracted claims are then passed through the full fact-checking pipeline.
+- **Multi-mode input** — Analyze news by submitting a URL (automatically scraped), pasting raw text or a claim, uploading a screenshot image, or pasting a social media / direct image link.
+- **Social post and image link analysis** — Paste any Twitter/X, Reddit, or direct image URL into the "Post / Image" tab. `post_extractor.py` fetches the content: direct image links are downloaded and sent to the vision model; HTML pages are parsed for OpenGraph and Twitter Card metadata (`og:image`, `twitter:image`, `og:title`, `og:description`). The extracted image and context are analyzed together by the vision model. Instagram and Facebook return graceful errors.
+- **Screenshot / image fact-check** — Upload a social media screenshot or news image. Nemotron-3-Nano (via OpenRouter) extracts the text, identifies key claims, entities, emotional tone, and visual manipulation signals (urgency framing, fake authority cues, ALL-CAPS headlines). The extracted claims are then passed through the full fact-checking pipeline.
 - **Multilingual analysis** — Submit content in any language. Language is detected automatically using `langdetect`. Non-English content is translated to English by `facebook/nllb-200-distilled-600M` before analysis. The original text is preserved and shown alongside the translation. A "Translated from [language]" badge appears on results.
 - **Adaptive scoring architecture** — The scoring formula changes based on input type. URL input runs Content + Source groups; text and claim input additionally runs a full Fact Verification group. Image input follows the text path after claim extraction.
 - **Semantic analysis** — Groq LLaMA-3.3-70b evaluates every submission for plausibility, sensationalism, misinformation patterns, and known conspiracy tropes. It also performs a dedicated factual accuracy check optionally grounded by live web context from Serper.
@@ -248,7 +249,8 @@ analysis    — One row per article analyzed. Stores the final score, verdict, a
               and new fields for image analysis and multilingual support:
 
                 input_type          — 'url' | 'text' | 'image'
-                image_url           — Supabase Storage public URL (image input only)
+                image_url           — Supabase Storage public URL (image / post URL input)
+                source_url          — Original post URL submitted by user (post-extractor path)
                 ocr_text            — Raw text extracted from image by vision model
                 visual_flags        — JSONB: manipulation_tactics, credibility_red_flags,
                                       emotional_tone, entities (image input only)
@@ -276,7 +278,7 @@ All routes are served by the FastAPI backend under the `/api` prefix.
 
 | Method | Endpoint | Description |
 |---|---|---|
-| POST | `/api/analyze` | Main analysis endpoint. Accepts `multipart/form-data` with fields `url`, `text`, `image` (file upload), and `user_id`. Returns a nested grouped result object. |
+| POST | `/api/analyze` | Main analysis endpoint. Accepts `application/json` with fields `url`, `text`, `post_url`, and `user_id`, or `multipart/form-data` with an `image` file upload. Returns a nested grouped result object. |
 | GET | `/api/history` | Returns the authenticated user's last 50 analyses. Requires a valid Supabase JWT. |
 | GET | `/api/analysis/{id}` | Returns a single analysis by ID. Row Level Security enforced — owner access only. |
 | POST | `/api/vote` | Submit a community vote. Body: `{ analysis_id, vote: "up" or "down" }`. |
@@ -434,10 +436,18 @@ truthlens/
 │   │   └── stats.py               GET /api/stats
 │   └── services/
 │       ├── scraper.py             Article scraping via newspaper3k
-│       ├── vision.py              Image analysis via Qwen2.5-VL-32B (OpenRouter).
-│       │                          Base64-encodes image, returns structured JSON with
-│       │                          extracted_text, main_claims, entities, emotional_tone,
-│       │                          manipulation_tactics, credibility_red_flags
+│       ├── vision.py              Image analysis via Nemotron-3-Nano (OpenRouter).
+│       │                          Accepts raw bytes + mime_type + optional context_text.
+│       │                          Returns structured JSON with extracted_text, main_claims,
+│       │                          entities, emotional_tone, manipulation_tactics,
+│       │                          credibility_red_flags
+│       ├── post_extractor.py      Social post and image URL fetcher. HEAD request → content
+│       │                          type detection → OpenGraph/Twitter Card parsing → image
+│       │                          byte download. 10 MB cap, 10s timeout. Used by analyze.py
+│       │                          when post_url is submitted.
+│       ├── storage.py             Supabase Storage uploader. Two functions:
+│       │                          upload_image_to_storage(bytes, filename) for file uploads;
+│       │                          upload_image_bytes_to_storage(bytes, mime_type) for URLs.
 │       ├── language.py            Language detection via langdetect. Returns ISO code.
 │       ├── translator.py          NLLB-200 translation to English. Model cached in RAM
 │       │                          at startup. Called when detected language is not 'en'.
