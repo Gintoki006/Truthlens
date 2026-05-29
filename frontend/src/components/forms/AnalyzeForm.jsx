@@ -425,7 +425,7 @@ export default function AnalyzeForm() {
                   >
                     <div className="p-4 border-2 border-slate-300 dark:border-stone-600 bg-slate-50 dark:bg-stone-900/40">
                       <p className="text-[10px] uppercase tracking-widest font-bold text-slate-500 dark:text-stone-400 mb-3">
-                        Supported: Twitter/X · Reddit · News articles · Direct image links
+                        Supported: Twitter/X · News articles · Direct image links
                       </p>
                       <input
                         type="url"

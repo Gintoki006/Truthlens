@@ -358,17 +358,26 @@ function truncateUrl(url, maxLen = 50) {
 
 // ── Init ───────────────────────────────────────────────────────────────────
 document.addEventListener("DOMContentLoaded", async () => {
-  // Get the current tab URL
-  try {
-    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-    if (tab && tab.url) {
-      currentTabUrl = tab.url;
-      tabUrlEl.textContent = truncateUrl(tab.url, 55);
-    } else {
-      tabUrlEl.textContent = "No URL detected";
+  // 1. Check if URL was passed via query parameter (from passive badge background script)
+  const params = new URLSearchParams(window.location.search);
+  const passedUrl = params.get("url");
+
+  if (passedUrl) {
+    currentTabUrl = passedUrl;
+    tabUrlEl.textContent = truncateUrl(passedUrl, 55);
+  } else {
+    // 2. Otherwise, get the current tab URL (when clicking extension icon)
+    try {
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      if (tab && tab.url) {
+        currentTabUrl = tab.url;
+        tabUrlEl.textContent = truncateUrl(tab.url, 55);
+      } else {
+        tabUrlEl.textContent = "No URL detected";
+      }
+    } catch (err) {
+      tabUrlEl.textContent = "Unable to read tab URL";
     }
-  } catch (err) {
-    tabUrlEl.textContent = "Unable to read tab URL";
   }
 
   // Check if we have a cached result for this URL (less than 30 min old)

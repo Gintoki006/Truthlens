@@ -15,6 +15,7 @@ Security:
 import logging
 import re
 
+import urllib.parse
 import httpx
 
 logger = logging.getLogger(__name__)
@@ -151,6 +152,42 @@ async def fetch_post_content(url: str) -> dict:
         }
     """
     logger.info(f"[POST_EXTRACTOR] Fetching: {url}")
+
+    # ── Twitter / X Interceptor ──────────────────────────────────────
+    parsed = urllib.parse.urlparse(url)
+    if parsed.netloc in ["x.com", "www.x.com", "twitter.com", "www.twitter.com"]:
+        api_url = f"https://api.vxtwitter.com{parsed.path}"
+        logger.info(f"[POST_EXTRACTOR] Rewriting Twitter URL to: {api_url}")
+        try:
+            async with httpx.AsyncClient(timeout=TIMEOUT, follow_redirects=True) as client:
+                resp = await client.get(api_url, timeout=TIMEOUT)
+                resp.raise_for_status()
+                data = resp.json()
+                
+                text = data.get('text', '')
+                user = data.get('user_screen_name', 'unknown')
+                context_text = f"Author: @{user}\nText: {text}"
+                
+                image_bytes, mime, ext = None, None, None
+                media_urls = data.get('mediaURLs', [])
+                if media_urls:
+                    # Fetch first media
+                    img_resp = await client.get(media_urls[0], timeout=TIMEOUT)
+                    img_resp.raise_for_status()
+                    image_bytes = img_resp.content
+                    mime = _mime_from_content_type(img_resp.headers.get("content-type", "image/jpeg"))
+                    ext = _ext_from_mime(mime)
+                
+                return {
+                    "image_bytes": image_bytes,
+                    "mime_type": mime,
+                    "filename": f"post_image.{ext}" if ext else None,
+                    "context_text": context_text,
+                    "text_only": image_bytes is None,
+                }
+        except Exception as e:
+            logger.warning(f"[POST_EXTRACTOR] vxtwitter extraction failed: {e}")
+            raise ValueError("Could not extract Twitter post. Ensure the link points to a valid public tweet.")
 
     async with httpx.AsyncClient(timeout=TIMEOUT, follow_redirects=True) as client:
         # ── HEAD request to determine content type cheaply ──────────────

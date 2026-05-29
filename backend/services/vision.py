@@ -81,6 +81,8 @@ async def analyze_image(
     try:
         async with httpx.AsyncClient(timeout=45.0) as client:
             resp = await client.post(OPENROUTER_URL, headers=headers, json=payload)
+            if not resp.is_success:
+                logger.error(f"[VISION] OpenRouter 400 error body: {resp.text}")
             resp.raise_for_status()
 
             resp_json = resp.json()

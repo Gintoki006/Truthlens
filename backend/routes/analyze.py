@@ -369,7 +369,7 @@ async def process_analysis(
 
         row = {
             "input_type": input_type,
-            "raw_input": req_url or req_text or (image_filename if image_bytes else None),
+            "raw_input": req_url or req_text or req_post_url or (image_filename if image_bytes else None),
             "original_language": original_language,
             "original_text": original_text[:10000] if original_text else None,
             "was_translated": was_translated,
