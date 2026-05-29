@@ -1,0 +1,32 @@
+{
+  "manifest_version": 3,
+  "name": "TruthLens — Fake News Detector",
+  "version": "1.0.0",
+  "description": "Instantly fact-check any news article with AI-powered multi-signal analysis. Get authenticity scores, verdict badges, and detailed explanations right from your browser toolbar.",
+  "permissions": ["activeTab", "storage"],
+  "host_permissions": [
+    "https://*.railway.app/*",
+    "http://localhost:8000/*",
+    "http://127.0.0.1:8000/*"
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}

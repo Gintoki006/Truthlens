@@ -1,0 +1,482 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TruthLens</title>
+
+  <!-- Google Fonts — matching the main app exactly -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,700&family=Work+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+  <style>
+    /* ── Reset ────────────────────────────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    /* ── Design Tokens (from design.md) ───────────────────────────────── */
+    :root {
+      /* Dark mode by default — matches the app's dark theme */
+      --bg:              #0f0f0f;
+      --bg-surface:      #1a1a1a;
+      --bg-elevated:     #242424;
+      --text-primary:    #f5f5f5;
+      --text-secondary:  #a3a3a3;
+      --text-muted:      #666;
+      --accent-red:      #ff554b;
+      --border:          #404040;
+      --border-strong:   #555;
+
+      /* Verdict colours */
+      --color-real:        #639922;
+      --color-real-bg:     rgba(99, 153, 34, 0.12);
+      --color-suspicious:  #BA7517;
+      --color-suspicious-bg: rgba(186, 117, 23, 0.12);
+      --color-fake:        #E24B4A;
+      --color-fake-bg:     rgba(226, 75, 74, 0.12);
+
+      /* Typography */
+      --font-display: 'Newsreader', serif;
+      --font-body:    'Work Sans', sans-serif;
+    }
+
+    /* ── Body ─────────────────────────────────────────────────────────── */
+    body {
+      width: 380px;
+      min-height: 200px;
+      background: var(--bg);
+      color: var(--text-primary);
+      font-family: var(--font-body);
+      font-size: 13px;
+      line-height: 1.5;
+      overflow-x: hidden;
+    }
+
+    /* ── Header (Editorial Brutalism) ─────────────────────────────────── */
+    .header {
+      padding: 14px 18px 10px;
+      border-bottom: 4px solid var(--text-primary);
+    }
+
+    .header-top {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .logo {
+      font-family: var(--font-display);
+      font-size: 22px;
+      font-weight: 700;
+      letter-spacing: -0.5px;
+      color: var(--text-primary);
+    }
+
+    .logo-dot {
+      color: var(--accent-red);
+    }
+
+    .header-badge {
+      font-size: 9px;
+      font-weight: 600;
+      letter-spacing: 1.2px;
+      text-transform: uppercase;
+      color: var(--accent-red);
+      border: 1px solid var(--accent-red);
+      padding: 2px 6px;
+      border-radius: 2px;
+    }
+
+    .header-rule {
+      margin-top: 8px;
+      border: none;
+      border-top: 0.5px solid var(--border);
+    }
+
+    .tab-url {
+      margin-top: 8px;
+      padding: 6px 10px;
+      background: var(--bg-surface);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      font-size: 11px;
+      color: var(--text-secondary);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      font-family: 'Courier New', monospace;
+    }
+
+    /* ── Main Content Area ─────────────────────────────────────────────── */
+    .content {
+      padding: 16px 18px;
+    }
+
+    /* ── Analyze Button ────────────────────────────────────────────────── */
+    .analyze-btn {
+      width: 100%;
+      padding: 12px 20px;
+      background: var(--text-primary);
+      color: var(--bg);
+      font-family: var(--font-body);
+      font-size: 13px;
+      font-weight: 600;
+      letter-spacing: 0.8px;
+      text-transform: uppercase;
+      border: none;
+      cursor: pointer;
+      transition: all 0.15s ease;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .analyze-btn:hover {
+      background: var(--accent-red);
+      color: #fff;
+    }
+
+    .analyze-btn:active {
+      transform: scale(0.98);
+    }
+
+    .analyze-btn:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    .analyze-btn:disabled:hover {
+      background: var(--text-primary);
+      color: var(--bg);
+    }
+
+    /* ── Loading State ─────────────────────────────────────────────────── */
+    .loading-container {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 30px 20px;
+      gap: 16px;
+    }
+
+    .spinner {
+      width: 40px;
+      height: 40px;
+      border: 3px solid var(--border);
+      border-top-color: var(--accent-red);
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
+    .loading-text {
+      font-size: 12px;
+      color: var(--text-secondary);
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+    }
+
+    .loading-stage {
+      font-size: 11px;
+      color: var(--text-muted);
+      font-style: italic;
+    }
+
+    /* ── Result Area ───────────────────────────────────────────────────── */
+    .result-container {
+      animation: fadeIn 0.3s ease;
+    }
+
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(8px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+
+    /* Score Gauge */
+    .gauge-section {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 12px 0 8px;
+    }
+
+    .gauge-canvas-container {
+      position: relative;
+    }
+
+    /* Verdict Badge */
+    .verdict-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 5px 14px;
+      border-radius: 100px;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      font-family: var(--font-body);
+      margin-top: 4px;
+    }
+
+    .verdict-real {
+      background: var(--color-real-bg);
+      color: var(--color-real);
+      border: 1px solid rgba(99, 153, 34, 0.3);
+    }
+
+    .verdict-suspicious {
+      background: var(--color-suspicious-bg);
+      color: var(--color-suspicious);
+      border: 1px solid rgba(186, 117, 23, 0.3);
+    }
+
+    .verdict-fake {
+      background: var(--color-fake-bg);
+      color: var(--color-fake);
+      border: 1px solid rgba(226, 75, 74, 0.3);
+    }
+
+    /* ── Signal Summary ────────────────────────────────────────────────── */
+    .signals-section {
+      margin-top: 14px;
+      border-top: 0.5px solid var(--border);
+      padding-top: 12px;
+    }
+
+    .signals-label {
+      font-size: 9px;
+      font-weight: 600;
+      letter-spacing: 1.5px;
+      text-transform: uppercase;
+      color: var(--text-muted);
+      margin-bottom: 10px;
+    }
+
+    .signal-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 6px 0;
+    }
+
+    .signal-row + .signal-row {
+      border-top: 0.5px solid var(--border);
+    }
+
+    .signal-name {
+      font-size: 12px;
+      color: var(--text-secondary);
+      font-weight: 500;
+    }
+
+    .signal-bar-container {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex: 0 0 160px;
+    }
+
+    .signal-bar-track {
+      flex: 1;
+      height: 4px;
+      background: var(--bg-elevated);
+      border-radius: 2px;
+      overflow: hidden;
+    }
+
+    .signal-bar-fill {
+      height: 100%;
+      border-radius: 2px;
+      transition: width 0.6s ease;
+    }
+
+    .signal-value {
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--text-primary);
+      font-family: 'Courier New', monospace;
+      min-width: 28px;
+      text-align: right;
+    }
+
+    /* ── Explanation ───────────────────────────────────────────────────── */
+    .explanation-section {
+      margin-top: 12px;
+      border-top: 0.5px solid var(--border);
+      padding-top: 12px;
+    }
+
+    .explanation-label {
+      font-size: 9px;
+      font-weight: 600;
+      letter-spacing: 1.5px;
+      text-transform: uppercase;
+      color: var(--text-muted);
+      margin-bottom: 6px;
+    }
+
+    .explanation-text {
+      font-size: 12px;
+      color: var(--text-secondary);
+      line-height: 1.6;
+    }
+
+    /* ── View Full Link ────────────────────────────────────────────────── */
+    .view-full-link {
+      display: block;
+      margin-top: 14px;
+      padding: 10px;
+      text-align: center;
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.8px;
+      text-transform: uppercase;
+      color: var(--accent-red);
+      text-decoration: none;
+      border: 1px solid var(--accent-red);
+      transition: all 0.15s ease;
+    }
+
+    .view-full-link:hover {
+      background: var(--accent-red);
+      color: #fff;
+    }
+
+    /* ── Error State ───────────────────────────────────────────────────── */
+    .error-container {
+      padding: 20px;
+      text-align: center;
+      animation: fadeIn 0.3s ease;
+    }
+
+    .error-icon {
+      font-size: 28px;
+      margin-bottom: 8px;
+    }
+
+    .error-title {
+      font-family: var(--font-display);
+      font-size: 15px;
+      font-weight: 700;
+      color: var(--color-fake);
+      margin-bottom: 6px;
+    }
+
+    .error-message {
+      font-size: 12px;
+      color: var(--text-secondary);
+      margin-bottom: 14px;
+      line-height: 1.5;
+    }
+
+    .retry-btn {
+      padding: 8px 20px;
+      background: transparent;
+      color: var(--text-secondary);
+      font-family: var(--font-body);
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.8px;
+      text-transform: uppercase;
+      border: 1px solid var(--border);
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+
+    .retry-btn:hover {
+      border-color: var(--text-primary);
+      color: var(--text-primary);
+    }
+
+    /* ── Footer ────────────────────────────────────────────────────────── */
+    .footer {
+      padding: 8px 18px 10px;
+      border-top: 4px double var(--text-primary);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .footer-text {
+      font-size: 9px;
+      color: var(--text-muted);
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+    }
+
+    .footer-version {
+      font-size: 9px;
+      color: var(--text-muted);
+      font-family: 'Courier New', monospace;
+    }
+
+    /* ── Idle state ────────────────────────────────────────────────────── */
+    .idle-container {
+      padding: 8px 0 4px;
+    }
+
+    .idle-hint {
+      margin-top: 12px;
+      padding: 10px 12px;
+      background: var(--bg-surface);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      font-size: 11px;
+      color: var(--text-secondary);
+      line-height: 1.5;
+    }
+
+    .idle-hint strong {
+      color: var(--text-primary);
+    }
+
+    /* ── History cache indicator ───────────────────────────────────────── */
+    .cached-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      font-size: 9px;
+      font-weight: 500;
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+      color: var(--text-muted);
+      margin-top: 2px;
+    }
+
+    .cached-dot {
+      width: 5px;
+      height: 5px;
+      border-radius: 50%;
+      background: var(--color-suspicious);
+    }
+  </style>
+</head>
+<body>
+
+  <!-- ═══ HEADER ═══ -->
+  <div class="header">
+    <div class="header-top">
+      <span class="logo">TruthLens<span class="logo-dot">.</span></span>
+      <span class="header-badge">AI Fact-Check</span>
+    </div>
+    <hr class="header-rule">
+    <div class="tab-url" id="tab-url">Loading…</div>
+  </div>
+
+  <!-- ═══ CONTENT ═══ -->
+  <div class="content" id="main-content">
+    <!-- Populated by popup.js -->
+  </div>
+
+  <!-- ═══ FOOTER ═══ -->
+  <div class="footer">
+    <span class="footer-text">Multi-Signal AI Analysis</span>
+    <span class="footer-version">v1.0.0</span>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>
