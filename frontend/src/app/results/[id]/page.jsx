@@ -550,18 +550,7 @@ export default function ResultsPage() {
                     <TranslationBadge originalLanguage={analysis.original_language} />
                   )}
 
-                  {/* Image Analysis Sidebar Panels */}
-                  {analysis.input_type === "image" && (
-                    <div className="space-y-6 mb-8 border-b-[1.5px] border-[#d4d4d4] dark:border-stone-700 pb-8">
-                      <ManipulationRadar 
-                        emotionalTone={analysis.visual_flags?.emotional_tone} 
-                        tactics={analysis.visual_flags?.manipulation_tactics} 
-                      />
-                      <VisualFlagsPanel 
-                        flags={analysis.visual_flags?.credibility_red_flags} 
-                      />
-                    </div>
-                  )}
+
 
                   {/* FIG 1. SIGNAL ANALYSIS */}
                   <div>

@@ -109,7 +109,13 @@ async def process_analysis(req_url: str | None, req_text: str | None, req_user_i
         
         claims = vision_result.get("main_claims", [])
         article_body = " ".join(claims) if claims else ocr_text
-        article_title = "Screenshot Analysis"
+        
+        if claims:
+            article_title = claims[0][:100] + ("..." if len(claims[0]) > 100 else "")
+        elif ocr_text:
+            article_title = ocr_text[:100] + ("..." if len(ocr_text) > 100 else "")
+        else:
+            article_title = "Screenshot Analysis"
         source_domain = None
         authors = []
         
