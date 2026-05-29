@@ -1,6 +1,6 @@
 # TruthLens
 
-TruthLens is a full-stack AI-powered fake news detection system. It analyzes news articles, factual claims, screenshot images, and social media post links — in any language — to determine their authenticity. It returns an explainable confidence score that draws on natural language processing, machine learning classification, semantic analysis, real-world corroboration, professional fact-checking databases, and multimodal vision AI — all evaluated in parallel.
+TruthLens is a full-stack AI-powered fake news detection system. It analyzes news articles, factual claims, screenshot images, and social media post links — in any language — to determine their authenticity. It returns an explainable confidence score that draws on natural language processing, machine learning classification, semantic analysis, real-world corroboration, professional fact-checking databases, and multimodal vision AI — all evaluated in parallel. A companion **Chrome extension** provides one-click analysis from any news page via a toolbar popup or a passive floating badge.
 
 ---
 
@@ -22,8 +22,8 @@ TruthLens is a full-stack AI-powered fake news detection system. It analyzes new
 ## Features
 
 - **Multi-mode input** — Analyze news by submitting a URL (automatically scraped), pasting raw text or a claim, uploading a screenshot image, or pasting a social media / direct image link.
-- **Social post and image link analysis** — Paste any Twitter/X, Reddit, or direct image URL into the "Post / Image" tab. `post_extractor.py` fetches the content: direct image links are downloaded and sent to the vision model; HTML pages are parsed for OpenGraph and Twitter Card metadata (`og:image`, `twitter:image`, `og:title`, `og:description`). The extracted image and context are analyzed together by the vision model. Instagram and Facebook return graceful errors.
-- **Screenshot / image fact-check** — Upload a social media screenshot or news image. Nemotron-3-Nano (via OpenRouter) extracts the text, identifies key claims, entities, emotional tone, and visual manipulation signals (urgency framing, fake authority cues, ALL-CAPS headlines). The extracted claims are then passed through the full fact-checking pipeline.
+- **Social post and image link analysis** — Paste any Twitter/X or direct image URL into the "Post / Image" tab. `post_extractor.py` fetches the content: direct image links are downloaded and sent to the vision model; HTML pages are parsed for OpenGraph and Twitter Card metadata (`og:image`, `twitter:image`, `og:title`, `og:description`). Reddit links are blocked by Cloudflare — use screenshot or Copy/Paste text mode instead. Instagram and Facebook return graceful errors.
+- **Screenshot / image fact-check** — Upload a social media screenshot or news image. `nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free` (via OpenRouter) extracts the text, identifies key claims, entities, emotional tone, and visual manipulation signals (urgency framing, fake authority cues, ALL-CAPS headlines). The extracted claims are then passed through the full fact-checking pipeline.
 - **Multilingual analysis** — Submit content in any language. Language is detected automatically using `langdetect`. Non-English content is translated to English by `facebook/nllb-200-distilled-600M` before analysis. The original text is preserved and shown alongside the translation. A "Translated from [language]" badge appears on results.
 - **Adaptive scoring architecture** — The scoring formula changes based on input type. URL input runs Content + Source groups; text and claim input additionally runs a full Fact Verification group. Image input follows the text path after claim extraction.
 - **Semantic analysis** — Groq LLaMA-3.3-70b evaluates every submission for plausibility, sensationalism, misinformation patterns, and known conspiracy tropes. It also performs a dedicated factual accuracy check optionally grounded by live web context from Serper.
@@ -38,6 +38,7 @@ TruthLens is a full-stack AI-powered fake news detection system. It analyzes new
 - **Personal stats** — Total analyses run, verdict breakdown, and most-checked domains per user.
 - **Dark mode** — System-aware dark and light mode.
 - **Mobile responsive** — Single-column layout on screens below 768px.
+- **Chrome Extension** — Manifest V3 extension with two modes: active toolbar popup (analyze any page with one click) and passive floating badge (badge injected into every page; clicking opens the popup and auto-runs analysis). Results cached locally for 30 minutes. Popup UI matches the main app's editorial design.
 
 ---
 
@@ -53,7 +54,7 @@ Before any scoring takes place, two pre-processing steps run in sequence:
 
 **Step 1 — Image extraction (image input only)**
 
-When an image is uploaded, `services/vision.py` base64-encodes the file and sends it to Qwen2.5-VL-32B via the OpenRouter API. The model returns structured JSON:
+When an image is uploaded, `services/vision.py` base64-encodes the file and sends it to `nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free` via the OpenRouter API. The model returns structured JSON:
 
 ```json
 {
@@ -222,7 +223,7 @@ The `groq_fact_check` service (called only for text/claim input) is a separate, 
 | APScheduler | >= 3.10 | Background news feed scheduler |
 | httpx | >= 0.27 | Async HTTP client (Serper, Groq, Wikidata, OpenRouter) |
 | Groq API (llama-3.3-70b-versatile) | — | Semantic analysis, factual accuracy check, and LLM explanations |
-| OpenRouter API (Qwen2.5-VL-32B) | — | Multimodal vision — image text extraction and manipulation signal analysis |
+| OpenRouter API (nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free) | — | Multimodal vision — image text extraction and manipulation signal analysis |
 | Serper API | — | Google Search corroboration and live web context for Groq fact check |
 | Google Fact Check API | — | Professional fact-checker database (PolitiFact, Snopes, etc.) |
 | Wikidata REST and SPARQL | — | Entity predicate verification |
@@ -412,7 +413,7 @@ The application will be available at `http://localhost:3000`.
 |---|---|---|
 | Vercel | Next.js frontend | Auto-deploys on every push to `main`. Set `NEXT_PUBLIC_FASTAPI_URL` to the Railway backend URL in the Vercel dashboard. |
 | Railway | FastAPI backend | Set all backend `.env` variables in the Railway dashboard. The Railway plan must have at least 512 MB of RAM to hold the FEVER index in memory. |
-| Supabase | Auth and PostgreSQL | Free tier (500 MB database, 50,000 monthly active users) is sufficient for a competition deployment. |
+| Supabase | Auth and Post | Database, Auth, and Storage. |
 
 ---
 
@@ -421,13 +422,11 @@ The application will be available at `http://localhost:3000`.
 ```
 truthlens/
 ├── backend/
-│   ├── main.py                    FastAPI app entry point. Handles startup (model loading,
-│   │                              NLP resources, FEVER index) and scheduler initialization.
+│   ├── main.py                    FastAPI entry point; startup loads models, FEVER index, scheduler
 │   ├── requirements.txt
-│   ├── scheduler.py               APScheduler configuration. Runs the feed analyzer
-│   │                              every 30 minutes as a background task.
+│   ├── scheduler.py               APScheduler — runs feed_analyzer every 30 min
 │   ├── routes/
-│   │   ├── analyze.py             POST /api/analyze — orchestrates the full pipeline
+│   │   ├── analyze.py             POST /api/analyze — full pipeline orchestrator
 │   │   ├── history.py             GET /api/history
 │   │   ├── vote.py                POST /api/vote
 │   │   ├── bookmarks.py           GET / POST / DELETE /api/bookmarks
@@ -435,103 +434,74 @@ truthlens/
 │   │   ├── feed.py                GET /api/feed
 │   │   └── stats.py               GET /api/stats
 │   └── services/
-│       ├── scraper.py             Article scraping via newspaper3k
-│       ├── vision.py              Image analysis via Nemotron-3-Nano (OpenRouter).
-│       │                          Accepts raw bytes + mime_type + optional context_text.
-│       │                          Returns structured JSON with extracted_text, main_claims,
-│       │                          entities, emotional_tone, manipulation_tactics,
-│       │                          credibility_red_flags
-│       ├── post_extractor.py      Social post and image URL fetcher. HEAD request → content
-│       │                          type detection → OpenGraph/Twitter Card parsing → image
-│       │                          byte download. 10 MB cap, 10s timeout. Used by analyze.py
-│       │                          when post_url is submitted.
-│       ├── storage.py             Supabase Storage uploader. Two functions:
-│       │                          upload_image_to_storage(bytes, filename) for file uploads;
-│       │                          upload_image_bytes_to_storage(bytes, mime_type) for URLs.
-│       ├── language.py            Language detection via langdetect. Returns ISO code.
-│       ├── translator.py          NLLB-200 translation to English. Model cached in RAM
-│       │                          at startup. Called when detected language is not 'en'.
-│       ├── nlp.py                 VADER, TextBlob, and clickbait regex NLP signal
-│       ├── ml.py                  RoBERTa and LR/TF-IDF ML ensemble
-│       ├── source.py              Domain trust lookup against the Supabase source table
-│       ├── crosscheck.py          Serper API integration and Groq stance detection
-│       ├── google_factcheck.py    Google Fact Check Tools API integration
-│       ├── wikidata_lookup.py     Wikidata REST and SPARQL hybrid entity check
-│       ├── fever_index.py         FEVER dataset semantic search index
-│       ├── factcheck.py           Fact verification orchestrator (fuses sub-signals for text input)
-│       ├── groq_news_check.py     Groq semantic analysis — plausibility, sensationalism,
-│       │                          misinformation patterns, satire detection (all input types)
-│       ├── groq_fact_check.py     Groq factual accuracy check with live Serper web context
-│       │                          (text/claim input only)
-│       ├── scorer.py              Adaptive score fusion. Applies URL path or text path
-│       │                          formula, then override rules.
-│       ├── explainer.py           LLM explanation generation via Groq
+│       ├── scraper.py             newspaper3k article scraper
+│       ├── vision.py              Qwen2.5-VL-32B via OpenRouter (Nvidia). analyze_image()
+│       │                          returns extracted_text, main_claims, entities,
+│       │                          emotional_tone, manipulation_tactics, credibility_red_flags
+│       ├── post_extractor.py      Social post / direct image URL fetcher.
+│       │                          10 MB cap, 10s timeout. Reddit blocked by Cloudflare.
+│       ├── storage.py             Supabase Storage uploader (file + URL paths)
+│       ├── language.py            langdetect — ISO 639-1 language identification
+│       ├── translator.py          NLLB-200 distilled-600M — cached in RAM at startup
+│       ├── nlp.py                 VADER + TextBlob + clickbait regex
+│       ├── ml.py                  RoBERTa + LR/TF-IDF ensemble
+│       ├── source.py              Domain trust lookup vs Supabase source table
+│       ├── crosscheck.py          Serper API + Groq stance detection
+│       ├── google_factcheck.py    Google Fact Check Tools API
+│       ├── wikidata_lookup.py     Wikidata REST + SPARQL entity check
+│       ├── fever_index.py         FEVER 185k-claim semantic search index
+│       ├── factcheck.py           Fact verification group orchestrator (text input)
+│       ├── groq_news_check.py     Groq semantic analysis (all input types)
+│       ├── groq_fact_check.py     Groq factual accuracy + live Serper web context (text only)
+│       ├── scorer.py              Adaptive score fusion + override rules
+│       ├── explainer.py           Groq LLM explanation generation
 │       ├── claim_analyzer.py      Claim and entity extraction helper
-│       ├── news_fetcher.py        NewsAPI headline fetcher (used by background scheduler)
+│       ├── news_fetcher.py        NewsAPI headline fetcher
 │       └── feed_analyzer.py       Batch-analyzes headlines and writes to feed_item table
+│
+├── extension/                     Chrome Manifest V3 extension
+│   ├── manifest.json              Permissions: activeTab, storage; service_worker: background.js
+│   ├── background.js              Service worker: receives analyze_tab from content.js
+│   │                              and opens popup.html?url=... window
+│   ├── popup.html                 Light editorial popup (cream bg, Newsreader serif)
+│   ├── popup.js                   idle/loading/result/error state machine.
+│   │                              Renders animated score, bar, signal rows, cross-verify.
+│   │                              Auto-analyzes when ?url= present. 30-min local cache.
+│   ├── content.js                 Passive floating TruthLens badge on all pages.
+│   └── icons/                     16px, 48px, 128px PNGs
 │
 ├── frontend/
 │   └── src/
 │       ├── app/                   Next.js App Router pages
 │       │   ├── page.js            Home / landing page
 │       │   ├── results/[id]/      Analysis results page
-│       │   ├── history/           Per-user history (renders ArchiveView)
+│       │   ├── history/           Per-user history (ArchiveView)
 │       │   ├── saved/             Bookmarked analyses
-│       │   ├── dashboard/         Stats charts and live feed
-│       │   ├── login/             Login page
-│       │   ├── signup/            Registration page
-│       │   ├── forgot-password/   Password reset page
-│       │   └── auth/callback/     OAuth redirect handler
+│       │   ├── dashboard/         Stats charts + live feed
+│       │   └── login/ signup/ forgot-password/ auth/callback/
 │       ├── components/
-│       │   ├── ui/
-│       │   │   ├── ScoreGauge.jsx          Animated SVG arc dial (0–100)
-│       │   │   ├── VerdictBadge.jsx        Color-coded verdict label
-│       │   │   ├── GroupScoreBar.jsx       Expandable group score bar
-│       │   │   ├── SubSignalRow.jsx        Individual sub-signal score row
-│       │   │   ├── SentenceHighlight.jsx   Color-coded sentence renderer with tooltip
-│       │   │   ├── CrosscheckPanel.jsx     Corroborating outlet links
-│       │   │   ├── FactCheckPanel.jsx      Fact verification sub-signal panel
-│       │   │   ├── FactCheckBadge.jsx      Fact-checker name, rating, and link
-│       │   │   ├── WikidataBadge.jsx       Entity verified / not found badge
-│       │   │   ├── OverrideBadge.jsx       Score override indicator
-│       │   │   ├── FallbackBadge.jsx       "Story may be too recent to verify" notice
-│       │   │   ├── TextOnlyBadge.jsx       "No source domain" notice
-│       │   │   ├── TranslationBadge.jsx    "Translated from [language]" badge
-│       │   │   ├── ManipulationRadar.jsx   Visual manipulation tactics display (image input)
-│       │   │   ├── VisualFlagsPanel.jsx    Credibility red flags panel (image input)
-│       │   │   ├── ExtractedClaimsPanel.jsx Extracted text and claims panel (image input)
-│       │   │   ├── SignalBar.jsx           Generic reusable signal bar
-│       │   │   ├── DashboardView.jsx       Stats charts (Recharts)
-│       │   │   ├── LiveFeedView.jsx        Live analyzed news feed with category filter
-│       │   │   └── ArchiveView.jsx         History list with filters and pagination
-│       │   ├── forms/
-│       │   │   ├── AnalyzeForm.jsx         URL / text / image upload tab toggle and submission
-│       │   │   └── AuthForm.jsx            Email and password login and signup
-│       │   ├── header.jsx                  Navigation bar with user avatar and sign-out
-│       │   ├── footer.jsx
-│       │   ├── live-feed-section.jsx       Landing page feed strip
-│       │   ├── recent-analyses.jsx         Landing page recent analyses strip
-│       │   └── animations.jsx              ScrollReveal and HorizontalScroll wrappers
-
-│       ├── hooks/
-│       │   ├── useAnalysis.js
-│       │   ├── useHistory.js
-│       │   └── useAuth.js
-│       ├── context/
-│       │   └── AuthContext.jsx             Global auth state provider
-│       └── lib/
-│           ├── supabase.js                 Supabase browser client singleton
-│           ├── supabaseServer.js           Supabase server client for Server Components
-│           └── api.js                      Fetch wrapper for FastAPI backend calls
+│       │   ├── ui/                ScoreGauge, VerdictBadge, GroupScoreBar, SubSignalRow,
+│       │   │                      SentenceHighlight, CrosscheckPanel, FactCheckPanel,
+│       │   │                      FactCheckBadge, WikidataBadge, OverrideBadge,
+│       │   │                      FallbackBadge, TextOnlyBadge, TranslationBadge,
+│       │   │                      ManipulationRadar, VisualFlagsPanel,
+│       │   │                      ExtractedClaimsPanel, SignalBar, DashboardView,
+│       │   │                      LiveFeedView, ArchiveView
+│       │   ├── forms/             AnalyzeForm.jsx, AuthForm.jsx
+│       │   └── header.jsx, footer.jsx, live-feed-section.jsx, recent-analyses.jsx,
+│       │       animations.jsx, smooth-scroll.jsx, theme-provider.jsx, theme-toggle.jsx
+│       ├── hooks/                 useAnalysis.js  useHistory.js  useAuth.js
+│       ├── context/               AuthContext.jsx
+│       └── lib/                   supabase.js  supabaseServer.js  api.js
 │
 ├── supabase/
-│   └── migration.sql              Full database schema and Row Level Security policies
+│   └── migration.sql              Full schema + RLS policies
 ├── scripts/
-│   └── seed_sources.py            One-time script to seed the source credibility table
+│   └── seed_sources.py            Seeds ~3,050 domain trust scores into Supabase
 ├── notebooks/
-│   └── train_lr_model.py          LIAR dataset training script for the LR model
+│   └── train_lr_model.py          LIAR dataset training for the LR/TF-IDF model
 └── data/
-    └── indian_sources.csv         Manually curated list of ~50 Indian news domains
+    └── indian_sources.csv         ~50 manually curated Indian news domains
 ```
 
 ---

@@ -1,14 +1,10 @@
 /**
  * TruthLens Chrome Extension — Popup Logic
  * ─────────────────────────────────────────
- * Grabs the active tab URL, sends it to the TruthLens API,
- * and renders the result in the popup using a canvas gauge
- * that mirrors the main app's ScoreGauge component.
+ * Editorial light-mode design matching the main app's results page.
  */
 
 // ── Configuration ──────────────────────────────────────────────────────────
-// In production, point this to the Railway backend URL.
-// During local development, use http://127.0.0.1:8000
 const API_BASE = "http://127.0.0.1:8000";
 const FRONTEND_BASE = "http://localhost:3000";
 
@@ -20,14 +16,7 @@ const mainContent = document.getElementById("main-content");
 let currentTabUrl = "";
 let analysisResult = null;
 
-// ── Score Color Utility (matches ScoreGauge.jsx) ───────────────────────────
-function getScoreColor(score) {
-  if (score >= 70) return "#639922";
-  if (score >= 40) return "#BA7517";
-  return "#E24B4A";
-}
-
-// ── Verdict Config (matches VerdictBadge.jsx) ──────────────────────────────
+// ── Verdict Config ──────────────────────────────────────────────────────────
 function getVerdictConfig(verdict) {
   const configs = {
     real:       { label: "Likely Real",  icon: "✓", cssClass: "verdict-real" },
@@ -37,113 +26,24 @@ function getVerdictConfig(verdict) {
   return configs[verdict] || configs.suspicious;
 }
 
-// ── Draw Score Gauge (canvas, matching the app's ScoreGauge) ───────────────
-function drawGauge(canvasId, score, size = 150) {
-  const canvas = document.getElementById(canvasId);
-  if (!canvas) return;
-
-  const strokeWidth = 10;
-  const dpr = window.devicePixelRatio || 1;
-  canvas.width = size * dpr;
-  canvas.height = size * dpr;
-  canvas.style.width = size + "px";
-  canvas.style.height = size + "px";
-
-  const ctx = canvas.getContext("2d");
-  ctx.scale(dpr, dpr);
-
-  const cx = size / 2;
-  const cy = size / 2 + 8;
-  const radius = (size - strokeWidth * 2) / 2 - 4;
-  const startAngle = Math.PI * 0.8;
-  const endAngle = Math.PI * 2.2;
-  const totalArc = endAngle - startAngle;
-
-  // Animate the score
-  let currentScore = 0;
-  const duration = 900;
-  const startTime = performance.now();
-
-  function animate(now) {
-    const elapsed = now - startTime;
-    const progress = Math.min(elapsed / duration, 1);
-    // Ease-out cubic
-    const eased = 1 - Math.pow(1 - progress, 3);
-    currentScore = Math.round(score * eased);
-
-    // Clear
-    ctx.clearRect(0, 0, size, size);
-
-    // Background arc
-    ctx.beginPath();
-    ctx.arc(cx, cy, radius, startAngle, endAngle);
-    ctx.strokeStyle = "rgba(150, 150, 150, 0.12)";
-    ctx.lineWidth = strokeWidth;
-    ctx.lineCap = "round";
-    ctx.stroke();
-
-    // Score arc
-    if (currentScore > 0) {
-      const scoreAngle = startAngle + (currentScore / 100) * totalArc;
-      const color = getScoreColor(currentScore);
-
-      ctx.beginPath();
-      ctx.arc(cx, cy, radius, startAngle, scoreAngle);
-      ctx.strokeStyle = color;
-      ctx.lineWidth = strokeWidth;
-      ctx.lineCap = "round";
-      ctx.stroke();
-
-      // Glow
-      ctx.beginPath();
-      ctx.arc(cx, cy, radius, startAngle, scoreAngle);
-      ctx.strokeStyle = color + "30";
-      ctx.lineWidth = strokeWidth + 6;
-      ctx.lineCap = "round";
-      ctx.stroke();
-    }
-
-    // Score text (Newsreader serif)
-    ctx.fillStyle = getScoreColor(currentScore);
-    ctx.font = `bold ${size * 0.24}px 'Newsreader', serif`;
-    ctx.textAlign = "center";
-    ctx.textBaseline = "middle";
-    ctx.fillText(currentScore.toString(), cx, cy - 6);
-
-    // Label
-    ctx.fillStyle = "rgba(150, 150, 150, 0.6)";
-    ctx.font = `500 ${size * 0.06}px 'Work Sans', sans-serif`;
-    ctx.fillText("AUTHENTICITY SCORE", cx, cy + size * 0.17);
-
-    if (progress < 1) {
-      requestAnimationFrame(animate);
-    }
-  }
-
-  requestAnimationFrame(animate);
-}
-
-// ── Render: Idle State ─────────────────────────────────────────────────────
+// ── Render: Idle State ──────────────────────────────────────────────────────
 function renderIdle() {
   mainContent.innerHTML = `
     <div class="idle-container">
-      <button class="analyze-btn" id="analyze-btn">
-        ▸ Analyze This Page
-      </button>
+      <button class="analyze-btn" id="analyze-btn">▸ Analyze This Page</button>
       <div class="idle-hint">
         <strong>How it works:</strong> TruthLens sends this page's URL to
-        our AI backend, which evaluates it across 8+ signals including NLP,
+        our AI backend — evaluating across 8+ signals including NLP,
         ML classification, cross-verification, and fact-check databases.
       </div>
     </div>
   `;
-
   document.getElementById("analyze-btn").addEventListener("click", () => {
     analyzeUrl(currentTabUrl);
   });
 }
 
-// ── Render: Loading State ──────────────────────────────────────────────────
+// ── Render: Loading State ───────────────────────────────────────────────────
 function renderLoading() {
   mainContent.innerHTML = `
     <div class="loading-container">
@@ -153,7 +53,6 @@ function renderLoading() {
     </div>
   `;
 
-  // Rotate loading messages
   const stages = [
     "Scraping article content…",
     "Running NLP sentiment analysis…",
@@ -175,72 +74,128 @@ function renderLoading() {
   }, 2500);
 }
 
-// ── Render: Signal Bar ─────────────────────────────────────────────────────
-function renderSignalBar(name, score) {
-  const color = getScoreColor(score);
+// ── Render: Signal Row ──────────────────────────────────────────────────────
+function renderSignalRow(name, sublabel, score) {
   const val = score != null ? score : "—";
-  const width = score != null ? score : 0;
   return `
     <div class="signal-row">
-      <span class="signal-name">${name}</span>
-      <div class="signal-bar-container">
-        <div class="signal-bar-track">
-          <div class="signal-bar-fill" style="width: ${width}%; background: ${color};"></div>
-        </div>
-        <span class="signal-value">${val}</span>
+      <div class="signal-left">
+        <span class="signal-name">${name}</span>
+        <span class="signal-sublabel">${sublabel}</span>
       </div>
+      <span class="signal-score">${val}</span>
     </div>
   `;
 }
 
-// ── Render: Result State ───────────────────────────────────────────────────
+// ── Animate score number counting up ───────────────────────────────────────
+function animateScore(target) {
+  const el = document.getElementById("score-number");
+  if (!el) return;
+  const duration = 900;
+  const start = performance.now();
+  function step(now) {
+    const progress = Math.min((now - start) / duration, 1);
+    const eased = 1 - Math.pow(1 - progress, 3);
+    el.textContent = Math.round(target * eased);
+    if (progress < 1) requestAnimationFrame(step);
+  }
+  requestAnimationFrame(step);
+}
+
+// ── Render: Result State ────────────────────────────────────────────────────
 function renderResult(data) {
   const vConfig = getVerdictConfig(data.verdict);
 
-  // Truncate explanation to ~2 sentences for the popup
+  // Truncate explanation to ~2 sentences
   let explanation = data.explanation || "";
   const sentences = explanation.match(/[^.!?]+[.!?]+/g) || [explanation];
   explanation = sentences.slice(0, 2).join(" ").trim();
-  if (explanation.length > 220) {
-    explanation = explanation.substring(0, 217) + "…";
-  }
+  if (explanation.length > 240) explanation = explanation.substring(0, 237) + "…";
 
-  // Signal scores — show the 3 main groups
+  // Build signal rows
   const signals = [];
   if (data.grouped_scores) {
     const gs = data.grouped_scores;
-    if (gs.content) signals.push({ name: "Content", score: gs.content.group_score });
-    if (gs.source)  signals.push({ name: "Source",  score: gs.source.group_score });
-    if (gs.facts)   signals.push({ name: "Facts",   score: gs.facts.group_score });
+    if (gs.content) signals.push({ name: "Content Intelligence",   sub: "Semantic/NLP Audit",       score: gs.content.group_score });
+    if (gs.source)  signals.push({ name: "Source & Corroboration", sub: "Domain/Origin Index",      score: gs.source.group_score });
+    if (gs.facts)   signals.push({ name: "Fact Verification",      sub: "Internal Database Match",  score: gs.facts.group_score });
   } else {
-    // Fallback to individual scores
-    if (data.score_nlp != null)    signals.push({ name: "NLP",    score: data.score_nlp });
-    if (data.score_source != null) signals.push({ name: "Source", score: data.score_source });
-    if (data.score_ml != null)     signals.push({ name: "ML",     score: data.score_ml });
+    if (data.score_nlp    != null) signals.push({ name: "Content Intelligence",   sub: "Semantic/NLP Audit",      score: data.score_nlp });
+    if (data.score_source != null) signals.push({ name: "Source & Corroboration", sub: "Domain/Origin Index",     score: data.score_source });
+    if (data.score_ml     != null) signals.push({ name: "Fact Verification",      sub: "ML Classification Score", score: data.score_ml });
   }
 
-  // Build result title
-  const title = data.article_title || "Analysis Complete";
+  const title  = data.article_title || "Analysis Complete";
+  const score  = data.score_final || 0;
+  const refId  = data.id ? `TR-${data.id.toString().slice(-3).toUpperCase()}` : "TR-—";
+  const sources = data.crosscheck_sources || [];
+
+  // Update header ref no
+  const refEl = document.getElementById("ref-no");
+  if (refEl) refEl.textContent = `REF NO. ${refId}`;
 
   mainContent.innerHTML = `
     <div class="result-container">
-      <!-- Score Gauge -->
-      <div class="gauge-section">
-        <div class="gauge-canvas-container">
-          <canvas id="score-gauge"></canvas>
+
+      <!-- Verification Assessment Header -->
+      <div class="verification-header">
+        <div class="verification-label">Verification Assessment: ${refId}</div>
+      </div>
+
+      <!-- Big Score Number -->
+      <div class="score-block">
+        <div class="score-number" id="score-number">0</div>
+        <div class="score-label">Authenticity Score</div>
+      </div>
+
+      <!-- Score Bar -->
+      <div class="score-bar-wrap">
+        <div class="score-bar-labels">
+          <span>000<br>MIN</span>
+          <span style="text-align:right">100<br>MAX</span>
         </div>
+        <div class="score-bar-track">
+          <div class="score-bar-fill" id="score-bar-fill" style="width: 0%"></div>
+        </div>
+      </div>
+
+      <!-- Article Title -->
+      <div class="article-title">${escapeHtml(title)}</div>
+
+      <!-- Verdict -->
+      <div class="verdict-section">
+        <div class="section-fig-label">Fig 1. Signal Analysis</div>
         <span class="verdict-badge ${vConfig.cssClass}">
-          ${vConfig.icon} ${vConfig.label}
+          <span class="verdict-icon">${vConfig.icon}</span>
+          Verdict: ${vConfig.label}
         </span>
       </div>
 
-      <!-- Signal Bars -->
+      <!-- Signal Rows -->
       ${signals.length > 0 ? `
         <div class="signals-section">
-          <div class="signals-label">Signal Breakdown</div>
-          ${signals.map(s => renderSignalBar(s.name, s.score)).join("")}
+          ${signals.map(s => renderSignalRow(s.name, s.sub, s.score)).join("")}
         </div>
       ` : ""}
+
+      <!-- Cross-Verification -->
+      <div class="sources-section">
+        <div class="section-fig-label">Fig 2. Cross-Verification</div>
+        ${sources.length > 0 ? `
+          <div class="sources-list">
+            ${sources.slice(0, 5).map(s => {
+              const label = (typeof s === "string") ? s : (s.domain || s.name || s.url || "Unknown");
+              return `<div class="source-item">${escapeHtml(label.toUpperCase())}</div>`;
+            }).join("")}
+          </div>
+        ` : `
+          <div class="no-sources-box">
+            <div class="no-sources-label">No Corroboration Found</div>
+            <div class="no-sources-text">Extensive search of primary and secondary news registries yields zero corroborating sources.</div>
+          </div>
+        `}
+      </div>
 
       <!-- Explanation -->
       ${explanation ? `
@@ -250,17 +205,19 @@ function renderResult(data) {
         </div>
       ` : ""}
 
-      <!-- View Full Analysis Link -->
-      <a href="#" class="view-full-link" id="view-full-link">
-        View Full Analysis →
-      </a>
+      <!-- View Full Analysis -->
+      <a href="#" class="view-full-link" id="view-full-link">View Full Analysis →</a>
     </div>
   `;
 
-  // Draw the animated gauge
-  drawGauge("score-gauge", data.score_final || 0);
+  // Animate score
+  animateScore(score);
+  requestAnimationFrame(() => {
+    const fill = document.getElementById("score-bar-fill");
+    if (fill) fill.style.width = score + "%";
+  });
 
-  // Wire up the full analysis link
+  // Wire up full analysis link
   const link = document.getElementById("view-full-link");
   if (link && data.id) {
     link.addEventListener("click", (e) => {
@@ -280,7 +237,6 @@ function renderError(message) {
       <button class="retry-btn" id="retry-btn">Try Again</button>
     </div>
   `;
-
   document.getElementById("retry-btn").addEventListener("click", () => {
     analyzeUrl(currentTabUrl);
   });
@@ -289,32 +245,23 @@ function renderError(message) {
 // ── API Call ────────────────────────────────────────────────────────────────
 async function analyzeUrl(url) {
   renderLoading();
-
   try {
     const res = await fetch(`${API_BASE}/api/analyze`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ url: url }),
+      body: JSON.stringify({ url }),
     });
-
     if (!res.ok) {
       const errData = await res.json().catch(() => ({}));
       throw new Error(errData.detail || errData.error || `Server returned ${res.status}`);
     }
-
     const data = await res.json();
     analysisResult = data;
-
-    // Cache in local storage for this URL
     try {
       await chrome.storage.local.set({
-        [`result_${hashUrl(url)}`]: {
-          data: data,
-          timestamp: Date.now(),
-        },
+        [`result_${hashUrl(url)}`]: { data, timestamp: Date.now() },
       });
-    } catch (_) { /* storage not critical */ }
-
+    } catch (_) {}
     renderResult(data);
   } catch (err) {
     console.error("TruthLens analysis error:", err);
@@ -330,7 +277,6 @@ function escapeHtml(text) {
 }
 
 function hashUrl(url) {
-  // Simple string hash for storage key
   let hash = 0;
   for (let i = 0; i < url.length; i++) {
     const chr = url.charCodeAt(i);
@@ -340,16 +286,14 @@ function hashUrl(url) {
   return Math.abs(hash).toString(36);
 }
 
-function truncateUrl(url, maxLen = 50) {
+function truncateUrl(url, maxLen = 55) {
   if (url.length <= maxLen) return url;
   try {
     const u = new URL(url);
     const domain = u.hostname;
     const path = u.pathname;
     const maxPath = maxLen - domain.length - 5;
-    if (maxPath > 5) {
-      return domain + path.substring(0, maxPath) + "…";
-    }
+    if (maxPath > 5) return domain + path.substring(0, maxPath) + "…";
     return domain + "/…";
   } catch {
     return url.substring(0, maxLen) + "…";
@@ -358,29 +302,29 @@ function truncateUrl(url, maxLen = 50) {
 
 // ── Init ───────────────────────────────────────────────────────────────────
 document.addEventListener("DOMContentLoaded", async () => {
-  // 1. Check if URL was passed via query parameter (from passive badge background script)
+  // 1. Check if URL was passed via query param (from passive badge)
   const params = new URLSearchParams(window.location.search);
   const passedUrl = params.get("url");
 
   if (passedUrl) {
     currentTabUrl = passedUrl;
-    tabUrlEl.textContent = truncateUrl(passedUrl, 55);
+    tabUrlEl.textContent = truncateUrl(passedUrl);
   } else {
-    // 2. Otherwise, get the current tab URL (when clicking extension icon)
+    // 2. Query the active tab
     try {
       const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
       if (tab && tab.url) {
         currentTabUrl = tab.url;
-        tabUrlEl.textContent = truncateUrl(tab.url, 55);
+        tabUrlEl.textContent = truncateUrl(tab.url);
       } else {
         tabUrlEl.textContent = "No URL detected";
       }
-    } catch (err) {
+    } catch {
       tabUrlEl.textContent = "Unable to read tab URL";
     }
   }
 
-  // Check if we have a cached result for this URL (less than 30 min old)
+  // Check cache
   if (currentTabUrl) {
     try {
       const key = `result_${hashUrl(currentTabUrl)}`;
@@ -391,22 +335,21 @@ document.addEventListener("DOMContentLoaded", async () => {
         if (ageMinutes < 30 && data) {
           analysisResult = data;
           renderResult(data);
-
-          // Add a "cached" indicator after render
-          const gaugeSection = document.querySelector(".gauge-section");
-          if (gaugeSection) {
+          // Cached indicator
+          const scoreBlock = document.querySelector(".score-block");
+          if (scoreBlock) {
             const badge = document.createElement("div");
             badge.className = "cached-badge";
             badge.innerHTML = `<span class="cached-dot"></span> Cached · ${Math.round(ageMinutes)}m ago`;
-            gaugeSection.appendChild(badge);
+            scoreBlock.appendChild(badge);
           }
           return;
         }
       }
-    } catch (_) { /* no cache, proceed to idle */ }
+    } catch (_) {}
   }
 
-  // Check if this is a non-analyzable URL
+  // Block browser-internal URLs
   if (
     !currentTabUrl ||
     currentTabUrl.startsWith("chrome://") ||
@@ -425,6 +368,12 @@ document.addEventListener("DOMContentLoaded", async () => {
         </div>
       </div>
     `;
+    return;
+  }
+
+  // If opened via passive badge, auto-analyze immediately
+  if (passedUrl) {
+    analyzeUrl(passedUrl);
     return;
   }
 
