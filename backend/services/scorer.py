@@ -194,10 +194,6 @@ def compute_final_score(
             final_score = min(final_score + 5, 100)
             override_applied = True
             score_override_reason = "Wikidata confirms entity predicates (+5)"
-        elif wikidata_score <= 25:
-            final_score = max(final_score - 8, 0)
-            override_applied = True
-            score_override_reason = "Wikidata contradicts entity predicates (-8)"
 
     final_score = max(0, min(100, final_score))
 

@@ -306,7 +306,14 @@ async def process_analysis(
         crosscheck_future = asyncio.create_task(crosscheck(search_query, input_type == "text"))
         groq_news_future = asyncio.create_task(groq_news_check(search_query))
         factcheck_future = loop.run_in_executor(executor, compute_fact_score, article_body[:500])
-        groq_fact_future = asyncio.create_task(groq_fact_check(search_query))
+        
+        async def dummy_groq_fact_check():
+            return {}
+            
+        if input_type == "url":
+            groq_fact_future = asyncio.create_task(dummy_groq_fact_check())
+        else:
+            groq_fact_future = asyncio.create_task(groq_fact_check(search_query))
 
         nlp_result, source_result, ml_result, crosscheck_result, factcheck_result, groq_news_result, groq_fact_result = await asyncio.gather(
             nlp_future, source_future, ml_future, crosscheck_future, factcheck_future, groq_news_future, groq_fact_future

@@ -205,8 +205,14 @@ function renderResult(data) {
         </div>
       ` : ""}
 
-      <!-- View Full Analysis -->
-      <a href="#" class="view-full-link" id="view-full-link">View Full Analysis →</a>
+      <!-- Actions -->
+      <div style="display: flex; gap: 8px; margin-top: 14px;">
+        <button class="retry-btn" id="reanalyze-btn" style="flex: 1; margin: 0; display: flex; align-items: center; justify-content: center; gap: 6px;">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
+          REANALYZE
+        </button>
+        <a href="#" class="view-full-link" id="view-full-link" style="flex: 2; margin-top: 0;">View Full Analysis →</a>
+      </div>
     </div>
   `;
 
@@ -223,6 +229,21 @@ function renderResult(data) {
     link.addEventListener("click", (e) => {
       e.preventDefault();
       chrome.tabs.create({ url: `${FRONTEND_BASE}/results/${data.id}` });
+    });
+  }
+
+  // Wire up reanalyze button
+  const reanalyzeBtn = document.getElementById("reanalyze-btn");
+  if (reanalyzeBtn) {
+    reanalyzeBtn.addEventListener("click", () => {
+      const key = `result_${hashUrl(currentTabUrl)}`;
+      if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
+        chrome.storage.local.remove(key, () => {
+          analyzeUrl(currentTabUrl);
+        });
+      } else {
+        analyzeUrl(currentTabUrl);
+      }
     });
   }
 }
