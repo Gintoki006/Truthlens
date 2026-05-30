@@ -1,4 +1,5 @@
 import os
+import asyncio
 from urllib.parse import urlparse
 from supabase import create_client
 
@@ -63,8 +64,15 @@ async def process_live_feed():
                 res = supabase.table("feed_item").insert(feed_row).execute()
                 if res.data:
                     print(f"    [SUCCESS] Saved feed item: {article['headline']}")
+                    
+                # To prevent hitting Groq API limits too quickly, delay for 60 seconds
+                print(f"    [DELAY] Waiting 60 seconds before next analysis...")
+                await asyncio.sleep(60)
+
             except Exception as e:
                 print(f"    [ERROR] Failed to analyze {url}: {e}")
+                # Also add a small delay on error just in case it was a rate limit error
+                await asyncio.sleep(5)
                 
     print("[*] Feed analyzer job complete.")
 

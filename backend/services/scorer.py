@@ -188,15 +188,16 @@ def compute_final_score(
                 score_override_reason = "AI Logic Check: claim is verified true with high confidence"
                 logger.info(f"[SCORER] Groq override — floored at 75 (groq_score={groq_score})")
 
-    # Wikidata overrides
-    if wikidata_score >= 75:
-        final_score = min(final_score + 5, 100)
-        override_applied = True
-        score_override_reason = "Wikidata confirms entity predicates (+5)"
-    elif wikidata_score <= 25:
-        final_score = max(final_score - 8, 0)
-        override_applied = True
-        score_override_reason = "Wikidata contradicts entity predicates (-8)"
+    # Wikidata overrides (Only apply to text/claim inputs)
+    if text_only_formula:
+        if wikidata_score >= 75:
+            final_score = min(final_score + 5, 100)
+            override_applied = True
+            score_override_reason = "Wikidata confirms entity predicates (+5)"
+        elif wikidata_score <= 25:
+            final_score = max(final_score - 8, 0)
+            override_applied = True
+            score_override_reason = "Wikidata contradicts entity predicates (-8)"
 
     final_score = max(0, min(100, final_score))
 
